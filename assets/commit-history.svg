@@ -1,31 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+  <title id="title">AIQUBITS commit signal</title>
+  <desc id="desc">Animated contribution field inspired by GitHub contribution motion, with interactive hover focus and a scanning signal.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#0b1412"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#0a1512"/></linearGradient>
+    <linearGradient id="scan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#39ff88" stop-opacity="0"/><stop offset=".5" stop-color="#39ff88" stop-opacity=".95"/><stop offset="1" stop-color="#39ff88" stop-opacity="0"/></linearGradient>
     <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
     <style>
       text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      .node{fill:#161b22;stroke:#30363d;stroke-width:2;cursor:pointer;transition:.18s ease}
-      .node:hover{stroke:#39ff88;filter:url(#glow)}
-      .label{fill:#8b949e;font-size:12px;opacity:.85}
-      .sha{fill:#39ff88;font-size:12px}
-      .title{fill:#f0f6fc;font-size:13px}
-      .pulse{animation:pulse 2.4s ease-in-out infinite}
-      @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+      .cell{fill:#161b22;stroke:#21262d;stroke-width:1;transition:.16s ease;transform-box:fill-box;transform-origin:center}
+      .cell.l1{fill:#0e4429}.cell.l2{fill:#006d32}.cell.l3{fill:#26a641}.cell.l4{fill:#39d353}
+      .cell:hover{fill:#7ee787;stroke:#b7ffc9;filter:url(#glow);transform:scale(1.22)}
+      .legend{fill:#8b949e;font-size:11px}.head{fill:#39ff88;font-size:15px}.sub{fill:#484f58;font-size:11px}
+      .trace{stroke:#39ff88;stroke-width:1.5;stroke-dasharray:5 10;opacity:.35;animation:dash 4s linear infinite}
+      @keyframes dash{to{stroke-dashoffset:-60}}
     </style>
   </defs>
-  <rect width="1200" height="360" rx="18" fill="url(#bg)" stroke="#30363d"/>
-  <text x="32" y="42" fill="#39ff88" font-size="16">/COMMIT/HISTORY</text>
-  <text x="1168" y="42" text-anchor="end" fill="#484f58" font-size="12">RECENT AINS TRACE · HOVER / CLICK NODES</text>
-  <path d="M90 190 C210 90 300 270 410 160 S650 80 760 190 S970 300 1110 150" fill="none" stroke="#238636" stroke-width="3" stroke-dasharray="8 10">
-    <animate attributeName="stroke-dashoffset" values="0;-36" dur="2.5s" repeatCount="indefinite"/>
-  </path>
+  <rect width="1200" height="300" rx="18" fill="url(#bg)" stroke="#30363d"/>
+  <text x="30" y="38" class="head">/COMMIT/SIGNAL</text>
+  <text x="1170" y="38" text-anchor="end" class="sub">CONTRIBUTION FIELD · HOVER TO FOCUS · CLICK TO OPEN HISTORY</text>
 
-  <a href="https://github.com/aiqubits/AINS/commit/a51eef80a1b37f74b56fb4b105c44401759d3cd0" target="_blank"><g transform="translate(110 170)"><circle class="node" r="20"/><circle r="6" fill="#39ff88" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">a51eef8</text><text x="0" y="62" text-anchor="middle" class="label">login notices</text></g></a>
-  <a href="https://github.com/aiqubits/AINS/commit/394ca2b9b2b836333c7797a1a557b5e80dd33bd9" target="_blank"><g transform="translate(300 125)"><circle class="node" r="20"/><circle r="6" fill="#58a6ff" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">394ca2b</text><text x="0" y="62" text-anchor="middle" class="label">quota notices</text></g></a>
-  <a href="https://github.com/aiqubits/AINS/commit/5ec747a6538361074763cab616e037e9d0844007" target="_blank"><g transform="translate(500 185)"><circle class="node" r="20"/><circle r="6" fill="#39ff88" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">5ec747a</text><text x="0" y="62" text-anchor="middle" class="label">GFM rendering</text></g></a>
-  <a href="https://github.com/aiqubits/AINS/commit/4477ec44ad3e82591b389028e741e6b144bd75a8" target="_blank"><g transform="translate(700 125)"><circle class="node" r="20"/><circle r="6" fill="#58a6ff" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">4477ec4</text><text x="0" y="62" text-anchor="middle" class="label">prompts + scroll</text></g></a>
-  <a href="https://github.com/aiqubits/AINS/commit/541996e27d8bb2019b1f75d4f94bad2195e62e5d" target="_blank"><g transform="translate(900 205)"><circle class="node" r="20"/><circle r="6" fill="#39ff88" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">541996e</text><text x="0" y="62" text-anchor="middle" class="label">CI hooks</text></g></a>
-  <a href="https://github.com/aiqubits/AINS/commit/1aece1e2a03eab1209311550d13a1cb60872bccf" target="_blank"><g transform="translate(1080 150)"><circle class="node" r="20"/><circle r="6" fill="#58a6ff" class="pulse"/><text x="0" y="42" text-anchor="middle" class="sha">1aece1e</text><text x="0" y="62" text-anchor="middle" class="label">skills format</text></g></a>
+  <g transform="translate(58 76)">
+    <path class="trace" d="M0 80 C150 0 260 150 420 65 S735 10 910 90 S1060 140 1080 35" fill="none"/>
 
-  <text x="600" y="320" text-anchor="middle" class="title">motion = flow · hover = focus · click = inspect commit</text>
+    <!-- 28 columns × 7 rows, stylized contribution field -->
+    <g>
+      <!-- column 1-7 -->
+      <rect class="cell" x="0" y="0" width="18" height="18" rx="3"/><rect class="cell l1" x="0" y="24" width="18" height="18" rx="3"/><rect class="cell" x="0" y="48" width="18" height="18" rx="3"/><rect class="cell l2" x="0" y="72" width="18" height="18" rx="3"/><rect class="cell" x="0" y="96" width="18" height="18" rx="3"/><rect class="cell" x="0" y="120" width="18" height="18" rx="3"/><rect class="cell" x="0" y="144" width="18" height="18" rx="3"/>
+      <rect class="cell l1" x="24" y="0" width="18" height="18" rx="3"/><rect class="cell" x="24" y="24" width="18" height="18" rx="3"/><rect class="cell l2" x="24" y="48" width="18" height="18" rx="3"/><rect class="cell" x="24" y="72" width="18" height="18" rx="3"/><rect class="cell l3" x="24" y="96" width="18" height="18" rx="3"/><rect class="cell" x="24" y="120" width="18" height="18" rx="3"/><rect class="cell l1" x="24" y="144" width="18" height="18" rx="3"/>
+      <rect class="cell" x="48" y="0" width="18" height="18" rx="3"/><rect class="cell l2" x="48" y="24" width="18" height="18" rx="3"/><rect class="cell" x="48" y="48" width="18" height="18" rx="3"/><rect class="cell l4" x="48" y="72" width="18" height="18" rx="3"/><rect class="cell l1" x="48" y="96" width="18" height="18" rx="3"/><rect class="cell" x="48" y="120" width="18" height="18" rx="3"/><rect class="cell" x="48" y="144" width="18" height="18" rx="3"/>
+    </g>
+
+    <!-- repeated field using use-like manual pattern -->
+    <g id="blockA" transform="translate(84 0)">
+      <rect class="cell l1" x="0" y="0" width="18" height="18" rx="3"/><rect class="cell l3" x="0" y="24" width="18" height="18" rx="3"/><rect class="cell l2" x="0" y="48" width="18" height="18" rx="3"/><rect class="cell" x="0" y="72" width="18" height="18" rx="3"/><rect class="cell l1" x="0" y="96" width="18" height="18" rx="3"/><rect class="cell l2" x="0" y="120" width="18" height="18" rx="3"/><rect class="cell" x="0" y="144" width="18" height="18" rx="3"/>
+      <rect class="cell l2" x="24" y="0" width="18" height="18" rx="3"/><rect class="cell" x="24" y="24" width="18" height="18" rx="3"/><rect class="cell l4" x="24" y="48" width="18" height="18" rx="3"/><rect class="cell l3" x="24" y="72" width="18" height="18" rx="3"/><rect class="cell" x="24" y="96" width="18" height="18" rx="3"/><rect class="cell l1" x="24" y="120" width="18" height="18" rx="3"/><rect class="cell l2" x="24" y="144" width="18" height="18" rx="3"/>
+      <rect class="cell" x="48" y="0" width="18" height="18" rx="3"/><rect class="cell l1" x="48" y="24" width="18" height="18" rx="3"/><rect class="cell l2" x="48" y="48" width="18" height="18" rx="3"/><rect class="cell l4" x="48" y="72" width="18" height="18" rx="3"/><rect class="cell l2" x="48" y="96" width="18" height="18" rx="3"/><rect class="cell" x="48" y="120" width="18" height="18" rx="3"/><rect class="cell l1" x="48" y="144" width="18" height="18" rx="3"/>
+    </g>
+
+    <use href="#blockA" x="84"/><use href="#blockA" x="168"/><use href="#blockA" x="252"/><use href="#blockA" x="336"/><use href="#blockA" x="420"/><use href="#blockA" x="504"/><use href="#blockA" x="588"/><use href="#blockA" x="672"/><use href="#blockA" x="756"/>
+
+    <rect x="-24" y="-6" width="70" height="168" fill="url(#scan)" opacity=".18">
+      <animate attributeName="x" values="-80;1050" dur="6s" repeatCount="indefinite"/>
+    </rect>
+
+    <circle cx="190" cy="56" r="5" fill="#7ee787"><animate attributeName="r" values="4;8;4" dur="2.2s" repeatCount="indefinite"/><animate attributeName="opacity" values=".45;1;.45" dur="2.2s" repeatCount="indefinite"/></circle>
+    <circle cx="610" cy="104" r="5" fill="#58a6ff"><animate attributeName="r" values="4;8;4" dur="2.8s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="2.8s" repeatCount="indefinite"/></circle>
+    <circle cx="945" cy="32" r="5" fill="#7ee787"><animate attributeName="r" values="4;8;4" dur="2.4s" repeatCount="indefinite"/><animate attributeName="opacity" values=".4;1;.4" dur="2.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <text x="60" y="270" class="legend">signal density → engineering motion</text>
+  <text x="1140" y="270" text-anchor="end" class="legend">hover cells · click field</text>
 </svg>
