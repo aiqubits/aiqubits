@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="840" viewBox="0 0 1200 840" role="img" aria-labelledby="title desc">
+<title id="title">AIQUBITS system map and live commit signal</title>
+<desc id="desc">Unified AIQUBITS system topology and live GitHub contribution signal.</desc>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#091410"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <style>
+    .spark{opacity:.01;fill:#7ee787;stroke:#b7ffc9;stroke-width:1;cursor:crosshair;transform-box:fill-box;transform-origin:center;transition:.16s ease}
+    .spark:hover{opacity:.9;filter:url(#glow);transform:scale(1.22);animation:pop .42s ease-out both}
+    @keyframes pop{0%{opacity:.05;transform:scale(.7)}45%{opacity:1;transform:scale(1.35)}100%{opacity:.35;transform:scale(1.08)}}
+  </style>
+</defs>
+<rect width="1200" height="840" rx="18" fill="url(#bg)" stroke="#30363d"/>
+<image href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/system-map.svg" x="0" y="0" width="1200" height="520"/>
+<image href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/commit-history.svg" x="0" y="535" width="1200" height="300"/>
+<!-- Lightweight interaction overlay: hover any hotspot for a local neon burst. -->
+<g aria-label="interactive commit hotspots">
+  <circle class="spark" cx="110" cy="655" r="9"/><circle class="spark" cx="185" cy="696" r="8"/><circle class="spark" cx="260" cy="633" r="10"/><circle class="spark" cx="338" cy="716" r="9"/>
+  <circle class="spark" cx="420" cy="675" r="8"/><circle class="spark" cx="505" cy="614" r="10"/><circle class="spark" cx="590" cy="737" r="9"/><circle class="spark" cx="675" cy="654" r="8"/>
+  <circle class="spark" cx="760" cy="696" r="10"/><circle class="spark" cx="845" cy="633" r="9"/><circle class="spark" cx="930" cy="716" r="8"/><circle class="spark" cx="1015" cy="675" r="10"/>
+  <circle class="spark" cx="1090" cy="614" r="9"/>
+</g>
+</svg>
