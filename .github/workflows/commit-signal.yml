@@ -1,8 +1,8 @@
-name: Update commit signal
+name: Update profile signal
 
 on:
   push:
-    branches: [main, feat/future-computing-profile]
+    branches: [main]
     paths:
       - '.github/scripts/generate_commit_signal.py'
       - '.github/workflows/commit-signal.yml'
@@ -18,24 +18,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Generate live contribution signal
+      - name: Generate live profile signal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROFILE_USER: aiqubits
-          OUTPUT: assets/commit-history.svg
+          OUTPUT: assets/profile-signal.svg
         run: python .github/scripts/generate_commit_signal.py
       - name: Commit updated signal
         run: |
-          if git diff --quiet -- assets/commit-history.svg; then
+          if git diff --quiet -- assets/profile-signal.svg; then
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- assets/commit-history.svg
-          git commit -m 'chore(profile): refresh live contribution signal [skip ci]'
+          git add -- assets/profile-signal.svg
+          git commit -m 'chore(profile): refresh live profile signal [skip ci]'
           git push
