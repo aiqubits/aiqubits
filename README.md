@@ -6,8 +6,6 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 
 **AI is not a feature. AI is the runtime.**
 
-<img src="./assets/system-map.svg" width="100%" alt="AIQUBITS system map" />
-
 <picture>
-  <img alt="AIQUBITS live contribution signal" src="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/commit-history.svg">
+  <img alt="AIQUBITS system map and live contribution signal" src="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/profile-signal.svg">
 </picture>
