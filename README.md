@@ -1,16 +1,33 @@
-## Hi there 👋
+<div align="center">
 
-<!--
-**aiqubits/aiqubits** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+<img src="./assets/hero.svg" width="100%" alt="AIQUBITS — Future Computing System Builder" />
 
-Here are some ideas to get you started:
+**AI is not a feature. AI is the runtime.**
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+[AINS](https://github.com/aiqubits/AINS) · [KeyCompute](https://github.com/aiqubits/KeyCompute) · [rust-agent](https://github.com/aiqubits/rust-agent)
+
+</div>
+
+---
+
+<img src="./assets/system-map.svg" width="100%" alt="AIQUBITS system map" />
+
+---
+
+<a href="https://github.com/aiqubits?tab=overview&from=2026-01-01&to=2026-12-31"><img src="./assets/commit-history.svg" width="100%" alt="Interactive animated contribution signal" /></a>
+
+---
+
+[AINS](https://github.com/aiqubits/AINS) — AI Native System  
+[KeyCompute](https://github.com/aiqubits/KeyCompute) — AI Computing Infrastructure  
+[rust-agent](https://github.com/aiqubits/rust-agent) — Composable Rust Agent Runtime
+
+---
+
+<div align="center">
+
+**BUILDING THE POST-APP COMPUTING LAYER**
+
+<img src="./assets/ending.svg" width="100%" alt="AIQUBITS future terminal" />
+
+</div>
