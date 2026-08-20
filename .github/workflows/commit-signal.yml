@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'README.md'
       - '.github/scripts/generate_commit_signal.py'
       - '.github/workflows/commit-signal.yml'
   schedule:
