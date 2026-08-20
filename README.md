@@ -14,7 +14,7 @@
 
 ---
 
-<a href="https://github.com/aiqubits?tab=overview&from=2026-01-01&to=2026-12-31"><img src="./assets/commit-history.svg" width="100%" alt="Interactive animated contribution signal" /></a>
+<img src="./assets/commit-history.svg" width="100%" alt="Interactive animated contribution signal" />
 
 ---
 
