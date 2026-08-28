@@ -157,7 +157,7 @@ class ReadmeCacheTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             readme = Path(directory) / "README.md"
             readme.write_text(
-                '<a href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/profile-signal.svg?v=old">\n'
+                f'<a href="{signal.STANDALONE_SVG_URL}?v=old">\n'
                 '  <img src="./assets/profile-signal.svg?v=old" alt="signal">\n'
                 "</a>\n",
                 encoding="utf-8",
@@ -186,9 +186,10 @@ class CheckedInAssetTests(unittest.TestCase):
         cache_keys = re.findall(r"profile-signal\.svg\?v=([0-9a-f]{12})", readme)
         self.assertEqual(len(cache_keys), 2)
         self.assertIn(
-            '<a class="profile-signal-link" href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/profile-signal.svg?',
+            f'<a class="profile-signal-link" href="{signal.STANDALONE_SVG_URL}?',
             readme,
         )
+        self.assertNotIn("raw.githubusercontent.com", readme)
         self.assertIn('target="_blank"', readme)
         self.assertIn('<p align="center">', readme)
         self.assertIn('<img class="profile-signal-image" src="./assets/', readme)

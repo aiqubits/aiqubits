@@ -29,6 +29,11 @@ FERRIS_ASSET = Path(os.environ.get("FERRIS_ASSET", "assets/ferris-flat-noshadow.
 OFFLINE_SVG = os.environ.get("OFFLINE_SVG")
 OFFLINE_PROJECTS = os.environ.get("OFFLINE_PROJECTS")
 README_PATH = Path(os.environ["README_PATH"]) if os.environ.get("README_PATH") else None
+# GitHub Raw adds a CSP sandbox that blocks links inside a standalone SVG.
+# jsDelivr preserves the SVG document's interactive repository links.
+STANDALONE_SVG_URL = (
+    "https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal.svg"
+)
 
 WIDTH, HEIGHT = 1200, 760
 CALENDAR_DAYS = 365
@@ -211,8 +216,9 @@ def update_readme_cache_key(path: Path, svg: str) -> None:
     """Change the image URL whenever SVG content changes, bypassing GitHub's cache."""
     source = path.read_text(encoding="utf-8")
     cache_key = sha256(svg.encode()).hexdigest()[:12]
+    standalone_url = re.escape(STANDALONE_SVG_URL)
     updated, replacements = re.subn(
-        r'((?:href|src)="(?:https://raw\.githubusercontent\.com/aiqubits/aiqubits/main/|\./)assets/profile-signal\.svg)(?:\?v=[^"]+)?(")',
+        rf'((?:href|src)="(?:{standalone_url}|\./assets/profile-signal\.svg))(?:\?v=[^"]+)?(")',
         rf"\1?v={cache_key}\2",
         source,
     )
