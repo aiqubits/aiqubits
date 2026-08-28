@@ -5,11 +5,17 @@ on:
     branches: [main]
     paths:
       - 'README.md'
+      - 'assets/ferris-flat-noshadow.svg'
       - '.github/scripts/generate_commit_signal.py'
+      - '.github/scripts/test_generate_commit_signal.py'
       - '.github/workflows/commit-signal.yml'
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: profile-signal-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -28,6 +34,8 @@ jobs:
           PROFILE_USER: aiqubits
           OUTPUT: assets/profile-signal.svg
         run: python .github/scripts/generate_commit_signal.py
+      - name: Test generated profile signal
+        run: python .github/scripts/test_generate_commit_signal.py
       - name: Commit updated signal
         run: |
           if git diff --quiet -- assets/profile-signal.svg; then
