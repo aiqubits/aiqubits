@@ -9,6 +9,7 @@ import unittest
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
@@ -133,11 +134,15 @@ class ProjectTests(unittest.TestCase):
     def test_long_repository_name_and_commit_count_stay_inside_label(self) -> None:
         repository = f"organization/{'long-repository-name-' * 6}"
         project = {"repository": repository, "commits": 12345, "prs": 2}
-        node = ET.fromstring(signal.project_motion(project, 0, [(54.0, 62.0)]))
+        node = ET.fromstring(
+            '<svg xmlns:xlink="http://www.w3.org/1999/xlink">'
+            f"{signal.project_motion(project, 0, [(54.0, 62.0)])}"
+            "</svg>"
+        )
 
-        shell = node.find("rect")
-        name = node.find("text[@class='project-name']")
-        count = node.find("text[@class='commit-count']")
+        shell = node.find(".//rect")
+        name = node.find(".//text[@class='project-name']")
+        count = node.find(".//text[@class='commit-count']")
         self.assertIsNotNone(shell)
         self.assertIsNotNone(name)
         self.assertIsNotNone(count)
@@ -147,34 +152,79 @@ class ProjectTests(unittest.TestCase):
         self.assertLess(float(count.get("x", "inf")), float(shell.get("width", "0")))
 
 
+class ReadmeCacheTests(unittest.TestCase):
+    def test_cache_key_tracks_svg_content(self) -> None:
+        with TemporaryDirectory() as directory:
+            readme = Path(directory) / "README.md"
+            readme.write_text(
+                '<a href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/profile-signal.svg?v=old">\n'
+                '  <img src="./assets/profile-signal.svg?v=old" alt="signal">\n'
+                "</a>\n",
+                encoding="utf-8",
+            )
+            svg = "<svg>new content</svg>"
+
+            signal.update_readme_cache_key(readme, svg)
+
+            expected = sha256(svg.encode()).hexdigest()[:12]
+            updated = readme.read_text(encoding="utf-8")
+            self.assertEqual(updated.count(f"profile-signal.svg?v={expected}"), 2)
+            self.assertNotIn("?v=old", updated)
+
+
 class CheckedInAssetTests(unittest.TestCase):
     def test_readme_uses_canonical_links_and_relative_signal(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("# Hi, I'm aiqubits 👋", readme)
         self.assertIn("https://github.com/keycompute/keycompute", readme)
         self.assertIn("https://github.com/aiqubits/rust-agent", readme)
-        self.assertIn("(./assets/profile-signal.svg)", readme)
-        self.assertNotIn("raw.githubusercontent.com/aiqubits/aiqubits", readme)
+        self.assertNotIn("Open-source contributions", readme)
+        self.assertIn(
+            "Meanwhile, I am a contributor to the following open-source projects.",
+            readme,
+        )
+        cache_keys = re.findall(r"profile-signal\.svg\?v=([0-9a-f]{12})", readme)
+        self.assertEqual(len(cache_keys), 2)
+        self.assertIn(
+            '<a class="profile-signal-link" href="https://raw.githubusercontent.com/aiqubits/aiqubits/main/assets/profile-signal.svg?',
+            readme,
+        )
+        self.assertIn('target="_blank"', readme)
+        self.assertIn('<p align="center">', readme)
+        self.assertIn('<img class="profile-signal-image" src="./assets/', readme)
+        self.assertEqual(
+            set(cache_keys),
+            {
+                sha256((ROOT / "assets/profile-signal.svg").read_bytes()).hexdigest()[
+                    :12
+                ]
+            },
+        )
 
     def test_svg_animation_contract(self) -> None:
         svg_path = ROOT / "assets/profile-signal.svg"
         root = ET.parse(svg_path).getroot()
+        self.assertEqual(root.get("width"), "100%")
+        self.assertEqual(root.get("height"), "100%")
+        self.assertEqual(root.get("preserveAspectRatio"), "xMidYMid meet")
         projects = [
             group
             for group in root.findall(".//svg:g", SVG_NAMESPACE)
             if (group.get("class") or "").startswith("project project-")
         ]
-        paths = []
-        for project in projects:
-            motion = project.find(".//svg:animateTransform", SVG_NAMESPACE)
-            self.assertIsNotNone(motion)
-            values = motion.get("values", "").split(";")
-            self.assertIn(len(values), (1201, 2401))
-            self.assertEqual(values[0], values[-1])
-            self.assertEqual(motion.get("dur"), "120s")
-            paths.append(values)
         self.assertEqual(len(projects), signal.TOP_PROJECT_LIMIT)
-        self.assertEqual(len({len(path) for path in paths}), 1)
+
+        links = root.findall(".//svg:a", SVG_NAMESPACE)
+        self.assertEqual(len(links), signal.TOP_PROJECT_LIMIT)
+        for link in links:
+            repository = link.find(".//svg:text[@class='project-name']", SVG_NAMESPACE)
+            self.assertIsNotNone(repository)
+            expected_url = f"https://github.com/{repository.text}"
+            self.assertEqual(link.get("href"), expected_url)
+            self.assertEqual(
+                link.get("{http://www.w3.org/1999/xlink}href"), expected_url
+            )
+            self.assertEqual(link.get("target"), "_blank")
 
         eats = sorted(
             (
@@ -234,6 +284,12 @@ class CheckedInAssetTests(unittest.TestCase):
             self.assertAlmostEqual(route_point[1], active_center[1], places=6)
 
         source = svg_path.read_text(encoding="utf-8")
+        self.assertEqual(source.count("@keyframes project-motion-"), 10)
+        self.assertIn(
+            ".project-field:hover .project,.project-field:focus-within .project{animation-play-state:paused}",
+            source,
+        )
+        self.assertNotIn("<animateTransform", source)
         self.assertIn(".ferris,.route{display:none}", source)
         self.assertIn(".project-0{transform:translate(", source)
         self.assertIn("px)!important}", source)

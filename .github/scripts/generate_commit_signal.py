@@ -16,6 +16,7 @@ import re
 import urllib.request
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from hashlib import sha256
 from html import escape
 from pathlib import Path
 from typing import Any, Iterable
@@ -27,6 +28,7 @@ OUT = Path(os.environ.get("OUTPUT", "assets/profile-signal.svg"))
 FERRIS_ASSET = Path(os.environ.get("FERRIS_ASSET", "assets/ferris-flat-noshadow.svg"))
 OFFLINE_SVG = os.environ.get("OFFLINE_SVG")
 OFFLINE_PROJECTS = os.environ.get("OFFLINE_PROJECTS")
+README_PATH = Path(os.environ["README_PATH"]) if os.environ.get("README_PATH") else None
 
 WIDTH, HEIGHT = 1200, 760
 CALENDAR_DAYS = 365
@@ -203,6 +205,23 @@ def load_offline_projects(raw: str) -> list[dict[str, Any]]:
     return sorted(
         projects, key=lambda item: (-item["commits"], item["repository"].casefold())
     )
+
+
+def update_readme_cache_key(path: Path, svg: str) -> None:
+    """Change the image URL whenever SVG content changes, bypassing GitHub's cache."""
+    source = path.read_text(encoding="utf-8")
+    cache_key = sha256(svg.encode()).hexdigest()[:12]
+    updated, replacements = re.subn(
+        r'((?:href|src)="(?:https://raw\.githubusercontent\.com/aiqubits/aiqubits/main/|\./)assets/profile-signal\.svg)(?:\?v=[^"]+)?(")',
+        rf"\1?v={cache_key}\2",
+        source,
+    )
+    if replacements != 2:
+        raise SystemExit(
+            f"Expected linked profile-signal.svg preview in {path}, found {replacements} URLs"
+        )
+    if updated != source:
+        path.write_text(updated, encoding="utf-8")
 
 
 def fmt(value: float) -> str:
@@ -409,7 +428,7 @@ def _simulate_project_paths_once(
                         "project collision solver produced an overlapping frame"
                     )
 
-    # SMIL linearly interpolates between samples. For each axis, compute the
+    # The browser linearly interpolates between samples. For each axis, compute the
     # exact open time interval where two expanded rectangles overlap, then
     # reject the segment if the horizontal and vertical intervals intersect.
     def overlap_window(
@@ -483,14 +502,13 @@ def simulate_project_paths(
 def project_motion(
     project: dict[str, Any], index: int, positions: list[tuple[float, float]]
 ) -> str:
-    """Return an unranked project label following a collision-safe path."""
+    """Return an unranked project label linked to its GitHub repository."""
     repository = project["repository"]
     commits = project["commits"]
     pr_count = project["prs"]
     node_width = project_width(project)
     node_height = 34.0
     base_x, base_y = positions[0]
-    motion_values = ";".join(f"{fmt(x)} {fmt(y)}" for x, y in positions)
     count_width = len(f"+{commits}") * 7.8
     count_x = node_width - 14
     available_name_width = node_width - 36 - count_width
@@ -499,13 +517,30 @@ def project_motion(
         if len(repository) * 7.35 > available_name_width
         else ""
     )
-    node = f'''<g class="project project-{index}" transform="translate({fmt(base_x)} {fmt(base_y)})">
-  <animateTransform class="project-motion" attributeName="transform" type="translate" values="{motion_values}" dur="{PROJECT_DURATION}s" begin="-17s" repeatCount="indefinite" calcMode="linear" additive="replace"/>
-  <title>{escape(repository)}: {commits} commits in {pr_count} merged PR{"s" if pr_count != 1 else ""}</title>
+    repository_url = f"https://github.com/{repository}"
+    node = f'''<a class="project-link" href="{escape(repository_url, quote=True)}" xlink:href="{escape(repository_url, quote=True)}" target="_blank" rel="noopener noreferrer" aria-label="Open {escape(repository, quote=True)} on GitHub">
+<g class="project project-{index}" transform="translate({fmt(base_x)} {fmt(base_y)})">
+  <title>{escape(repository)}: {commits} commit{"s" if commits != 1 else ""} in {pr_count} merged PR{"s" if pr_count != 1 else ""}</title>
   <rect class="project-shell" width="{fmt(node_width)}" height="{fmt(node_height)}" rx="9"/>
   <text class="project-name" x="14" y="21.5"{name_fit}>{escape(repository)}</text><text class="commit-count" x="{fmt(count_x)}" y="21.5" text-anchor="end">+{commits}</text>
-</g>'''
+</g>
+</a>'''
     return node
+
+
+def project_animation(index: int, positions: list[tuple[float, float]]) -> str:
+    """Return pauseable CSS keyframes with the simulation's original timing."""
+    last_index = max(1, len(positions) - 1)
+    keyframes = "".join(
+        f"{frame_index * 100 / last_index:.6f}%"
+        f"{{transform:translate({fmt(x)}px,{fmt(y)}px)}}"
+        for frame_index, (x, y) in enumerate(positions)
+    )
+    return (
+        f"@keyframes project-motion-{index}{{{keyframes}}}"
+        f".project-{index}{{animation:project-motion-{index} "
+        f"{PROJECT_DURATION}s linear -17s infinite}}"
+    )
 
 
 def build_crab_route(
@@ -571,9 +606,11 @@ def render_svg(
 
     project_paths = simulate_project_paths(projects)
     project_nodes = []
+    project_animations = []
     for index, project in enumerate(projects):
         project_nodes.append(project_motion(project, index, project_paths[index]))
-    # Important author declarations outrank SMIL animations in the SVG cascade.
+        project_animations.append(project_animation(index, project_paths[index]))
+    # Important author declarations outrank CSS animations in the SVG cascade.
     # Pin each existing node to its first collision-safe position for users who
     # request reduced motion, without duplicating graphics or accessibility text.
     reduced_project_rules = "".join(
@@ -659,9 +696,9 @@ def render_svg(
         f"{project['repository']} plus {project['commits']}" for project in projects
     )
 
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:serif="http://www.serif.com/" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title desc">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:serif="http://www.serif.com/" width="100%" height="100%" viewBox="0 0 {WIDTH} {HEIGHT}" preserveAspectRatio="xMidYMid meet" style="display:block;background:#0d1117" role="img" aria-labelledby="title desc">
 <title id="title">AIQUBITS open-source orbit and contribution crab</title>
-<desc id="desc">Top external projects by commits in merged pull requests: {escape(top_project_desc)}. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
+<desc id="desc">Top external projects by commits in merged pull requests: {escape(top_project_desc)}. Hover or focus a project to pause the orbit; activate it to open the GitHub repository. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
 <defs>
   <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#07130e"/></linearGradient>
   <filter id="green-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -670,19 +707,21 @@ def render_svg(
   <style>
     text{{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
     .head{{fill:#39ff88;font-size:15px;letter-spacing:1.2px}}.sub{{fill:#7d8590;font-size:11px}}.month{{fill:#7d8590;font-size:10px}}.weekday{{fill:#7d8590;font-size:10px}}
-    .field-line{{stroke:#21262d;stroke-width:1}}.project{{cursor:default}}.project-shell{{fill:#121b19;fill-opacity:.94;stroke:#2a4136;stroke-width:1}}.project:hover .project-shell{{stroke:#7ee787;filter:url(#green-glow)}}
+    .field-line{{stroke:#21262d;stroke-width:1}}.project-link,.project{{cursor:pointer}}.project-shell{{fill:#121b19;fill-opacity:.94;stroke:#2a4136;stroke-width:1}}.project:hover .project-shell,.project-link:focus .project-shell{{stroke:#7ee787;filter:url(#green-glow)}}
     .project-name{{fill:#d8dee4;font-size:13px}}.commit-count{{fill:#ffb86b;font-weight:600}}
+    {"".join(project_animations)}
+    .project-field:hover .project,.project-field:focus-within .project{{animation-play-state:paused}}
     .slot{{fill:#161b22;stroke:#21262d;stroke-width:.7}}.day:hover .slot{{stroke:#7ee787}}.day:hover .activity{{filter:url(#green-glow)}}
     .route{{fill:none;stroke:#f0883e;stroke-width:.7;stroke-dasharray:1 9;stroke-linecap:round;opacity:.075}}
     .ferris-bob{{animation:ferris-bob 1.4s ease-in-out infinite alternate}}@keyframes ferris-bob{{to{{transform:translateY(-1.5px)}}}}
-    @media (prefers-reduced-motion:reduce){{.activity{{opacity:1!important}}.ferris,.route{{display:none}}.ferris-bob{{animation:none!important}}{reduced_project_rules}}}
+    @media (prefers-reduced-motion:reduce){{.activity{{opacity:1!important}}.project{{animation:none!important}}.ferris,.route{{display:none}}.ferris-bob{{animation:none!important}}{reduced_project_rules}}}
   </style>
 </defs>
 <rect width="{WIDTH}" height="{HEIGHT}" rx="18" fill="url(#background)" stroke="#30363d"/>
 
 <text x="30" y="35" class="head">/MERGED/ORBIT</text><text x="1170" y="35" text-anchor="end" class="sub">EXTERNAL OPEN SOURCE · COMMIT COUNT IN MERGED PRS · TOP {TOP_PROJECT_LIMIT}</text>
-<g aria-label="Top external projects">{"".join(project_nodes)}</g>
-<text x="30" y="414" class="sub">COLLISION-SAFE RANDOM WALK · LABEL +N = COMMITS · UNRANKED DISPLAY</text><text x="1170" y="414" text-anchor="end" class="sub">{project_summary}</text>
+<g class="project-field" aria-label="Top external projects">{"".join(project_nodes)}</g>
+<text x="30" y="414" class="sub">RANDOM WALK · HOVER TO PAUSE · CLICK PROJECT TO OPEN · +N = COMMITS</text><text x="1170" y="414" text-anchor="end" class="sub">{project_summary}</text>
 <path class="field-line" d="M30 432H1170"/>
 
 <text x="30" y="464" class="head">/CONTRIBUTION/CRAB</text><text x="1170" y="464" text-anchor="end" class="sub">{start.isoformat()} → {end.isoformat()} · {total} CONTRIBUTIONS</text>
@@ -707,6 +746,8 @@ def main() -> None:
     svg = render_svg(weeks, total, start, end, projects)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(svg, encoding="utf-8")
+    if README_PATH:
+        update_readme_cache_key(README_PATH, svg)
     print(
         f"generated {OUT}: {len(weeks)} weeks, {total} contributions, "
         f"{min(TOP_PROJECT_LIMIT, len(projects))} external projects"
