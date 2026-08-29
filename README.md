@@ -8,11 +8,11 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 <summary>I am also a contributor to the following open-source projects.</summary>
 
 <!-- profile-signal-projects:start -->
-- [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits
+- [boxlite-ai/boxlite](https://github.com/boxlite-ai/boxlite) — `+4` merged-PR commits
 - [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
 - [conflux-fans/conflux-bounties](https://github.com/conflux-fans/conflux-bounties) — `+27` merged-PR commits
 - [OneBlockPlus/polkadot-hackathon-2024](https://github.com/OneBlockPlus/polkadot-hackathon-2024) — `+6` merged-PR commits
-- [boxlite-ai/boxlite](https://github.com/boxlite-ai/boxlite) — `+2` merged-PR commits
+- [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits
 - [conflux-fans/summerhackfest-2025](https://github.com/conflux-fans/summerhackfest-2025) — `+1` merged-PR commit
 - [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
 - [cloud-hypervisor/cloud-hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) — `+1` merged-PR commit
@@ -23,7 +23,7 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-d97f1e20eb1d.svg">
-    <img src="./assets/profile-signal.svg?v=d97f1e20eb1d" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-479b06d64336.svg">
+    <img src="./assets/profile-signal.svg?v=479b06d64336" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>
