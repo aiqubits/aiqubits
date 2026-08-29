@@ -5,7 +5,7 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 ⚡ Building [AINS](https://github.com/aiqubits/AINS), [KeyCompute](https://github.com/keycompute/keycompute), and [rust-agent](https://github.com/aiqubits/rust-agent).
 
 <details>
-<summary>I am a contributor to the following open-source projects.</summary>
+<summary>I am also a contributor to the following open-source projects.</summary>
 
 <!-- profile-signal-projects:start -->
 - [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits

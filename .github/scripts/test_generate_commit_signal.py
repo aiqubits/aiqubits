@@ -346,7 +346,7 @@ class CheckedInAssetTests(unittest.TestCase):
         self.assertIn("https://github.com/aiqubits/rust-agent", readme)
         self.assertNotIn("Open-source contributions", readme)
         summary = (
-            "<summary>I am a contributor to the following open-source "
+            "<summary>I am also a contributor to the following open-source "
             "projects.</summary>"
         )
         self.assertEqual(readme.count(summary), 1)
