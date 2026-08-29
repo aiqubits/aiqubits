@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generate the animated SVG used by the aiqubits profile README.
 
-The upper field selects external repositories by commits contained in merged PRs,
-then displays the top ten in an unranked random walk. The lower field renders the
-last year of GitHub activity and lets Ferris consume each active day.
+The upper field keeps external repositories with GitHub-recorded commit or PR
+contribution activity in the last two calendar years, ranks them by all-time
+commits contained in merged PRs, then displays the top ten in an unranked random
+walk. The lower field renders the last year of GitHub activity and lets Ferris
+consume each active day.
 """
 
 from __future__ import annotations
@@ -30,13 +32,16 @@ OFFLINE_SVG = os.environ.get("OFFLINE_SVG")
 OFFLINE_PROJECTS = os.environ.get("OFFLINE_PROJECTS")
 README_PATH = Path(os.environ["README_PATH"]) if os.environ.get("README_PATH") else None
 # GitHub Raw adds a CSP sandbox that blocks links inside a standalone SVG.
-# jsDelivr preserves the SVG document's interactive repository links.
-STANDALONE_SVG_URL = (
-    "https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal.svg"
+# jsDelivr preserves the SVG document's interactive repository links. The
+# content-addressed filename avoids the CDN's cache for mutable branch paths.
+STANDALONE_SVG_URL_PREFIX = (
+    "https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-"
 )
 
 WIDTH, HEIGHT = 1200, 760
 CALENDAR_DAYS = 365
+RECENT_ACTIVITY_YEARS = 2
+RECENT_ACTIVITY_MAX_REPOSITORIES = 100
 CRAB_DURATION = 120
 SWALLOW_FADE_SECONDS = 0.45
 PROJECT_DURATION = 120
@@ -45,7 +50,7 @@ PROJECT_TIMESTEPS = (0.1, 0.05)
 PROJECT_SIMULATION_ATTEMPTS = 12
 PROJECT_GAP = 7.0
 PROJECT_X_MIN, PROJECT_X_MAX = 34.0, WIDTH - 34.0
-PROJECT_Y_MIN, PROJECT_Y_MAX = 58.0, 368.0
+PROJECT_Y_MIN, PROJECT_Y_MAX = 58.0, 420.0
 TOP_PROJECT_LIMIT = 10
 GRAPHQL_URL = "https://api.github.com/graphql"
 
@@ -73,6 +78,21 @@ query($query: String!, $after: String) {
       ... on PullRequest {
         merged
         commits { totalCount }
+        repository { nameWithOwner owner { login } }
+      }
+    }
+  }
+}
+"""
+
+RECENT_ACTIVITY_QUERY = """
+query($login: String!, $from: DateTime!, $to: DateTime!, $maxRepositories: Int!) {
+  user(login: $login) {
+    contributionsCollection(from: $from, to: $to) {
+      commitContributionsByRepository(maxRepositories: $maxRepositories) {
+        repository { nameWithOwner owner { login } }
+      }
+      pullRequestContributionsByRepository(maxRepositories: $maxRepositories) {
         repository { nameWithOwner owner { login } }
       }
     }
@@ -146,6 +166,56 @@ def fetch_merged_prs() -> list[dict[str, Any]]:
         cursor = page["pageInfo"]["endCursor"]
 
 
+def calendar_years_ago(day: date, years: int) -> date:
+    """Return the same calendar date in an earlier year, clamping leap day."""
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)
+
+
+def recent_activity_windows(today: date) -> list[tuple[date, date]]:
+    """Split the rolling two-year interval into GitHub-safe one-year windows."""
+    start = calendar_years_ago(today, RECENT_ACTIVITY_YEARS)
+    windows = []
+    while start <= today:
+        end = min(today, start + timedelta(days=CALENDAR_DAYS - 1))
+        windows.append((start, end))
+        start = end + timedelta(days=1)
+    return windows
+
+
+def fetch_recent_active_repositories(today: date) -> set[str]:
+    """Return repositories with GitHub contribution activity in the last 2 years."""
+    repositories: set[str] = set()
+    for start, end in recent_activity_windows(today):
+        data = graphql(
+            RECENT_ACTIVITY_QUERY,
+            {
+                "login": USER,
+                "from": f"{start.isoformat()}T00:00:00Z",
+                "to": f"{end.isoformat()}T23:59:59Z",
+                "maxRepositories": RECENT_ACTIVITY_MAX_REPOSITORIES,
+            },
+        )
+        user = data.get("user")
+        if not user:
+            raise SystemExit(f"GitHub user not found: {USER}")
+        collection = user["contributionsCollection"]
+        groups = (
+            collection["commitContributionsByRepository"],
+            collection["pullRequestContributionsByRepository"],
+        )
+        for group in groups:
+            for contribution in group:
+                repository = contribution.get("repository") or {}
+                owner = (repository.get("owner") or {}).get("login", "")
+                name = repository.get("nameWithOwner")
+                if name and owner.casefold() != USER.casefold():
+                    repositories.add(name)
+    return repositories
+
+
 def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     projects: dict[str, dict[str, Any]] = defaultdict(lambda: {"commits": 0, "prs": 0})
     for pr in prs:
@@ -163,6 +233,16 @@ def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str,
     return sorted(
         ranked, key=lambda item: (-item["commits"], item["repository"].casefold())
     )
+
+
+def filter_recent_active_projects(
+    projects: Iterable[dict[str, Any]], active_repositories: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Keep recent repositories without changing their all-time commit totals."""
+    active = {repository.casefold() for repository in active_repositories}
+    return [
+        project for project in projects if project["repository"].casefold() in active
+    ]
 
 
 def load_offline_calendar(path: Path) -> tuple[list[dict[str, Any]], int, date, date]:
@@ -212,19 +292,99 @@ def load_offline_projects(raw: str) -> list[dict[str, Any]]:
     )
 
 
-def update_readme_cache_key(path: Path, svg: str) -> None:
-    """Change the image URL whenever SVG content changes, bypassing GitHub's cache."""
+def svg_cache_key(svg: str) -> str:
+    return sha256(svg.encode()).hexdigest()[:12]
+
+
+def standalone_svg_url(cache_key: str) -> str:
+    return f"{STANDALONE_SVG_URL_PREFIX}{cache_key}.svg"
+
+
+def readme_standalone_cache_key(path: Path) -> str | None:
     source = path.read_text(encoding="utf-8")
-    cache_key = sha256(svg.encode()).hexdigest()[:12]
-    standalone_url = re.escape(STANDALONE_SVG_URL)
-    updated, replacements = re.subn(
-        rf'((?:href|src)="(?:{standalone_url}|\./assets/profile-signal\.svg))(?:\?v=[^"]+)?(")',
-        rf"\1?v={cache_key}\2",
+    match = re.search(
+        re.escape(STANDALONE_SVG_URL_PREFIX) + r"([0-9a-f]{12})\.svg", source
+    )
+    return match.group(1) if match else None
+
+
+def write_standalone_asset(
+    output: Path, svg: str, retain_cache_keys: Iterable[str] = ()
+) -> Path:
+    """Write the current standalone SVG and retain a bounded previous version."""
+    cache_key = svg_cache_key(svg)
+    standalone = output.with_name(f"{output.stem}-{cache_key}{output.suffix}")
+    generated_name = re.compile(
+        rf"{re.escape(output.stem)}-([0-9a-f]{{12}}){re.escape(output.suffix)}"
+    )
+    retained = {cache_key, *retain_cache_keys}
+    for candidate in output.parent.iterdir():
+        match = generated_name.fullmatch(candidate.name)
+        if candidate.is_file() and match and match.group(1) not in retained:
+            candidate.unlink()
+    standalone.write_text(svg, encoding="utf-8")
+    return standalone
+
+
+def display_projects(projects: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the deterministic unranked order shared by SVG and README."""
+    displayed = list(projects)[:TOP_PROJECT_LIMIT]
+    display_rng = random.Random(
+        "|".join(sorted(project["repository"] for project in displayed))
+    )
+    display_rng.shuffle(displayed)
+    return displayed
+
+
+def readme_project_rows(projects: Iterable[dict[str, Any]]) -> str:
+    rows = []
+    for project in display_projects(projects):
+        repository = project["repository"]
+        commits = project["commits"]
+        commit_label = "commit" if commits == 1 else "commits"
+        rows.append(
+            f"- [{repository}](https://github.com/{repository}) "
+            f"— `+{commits}` merged-PR {commit_label}"
+        )
+    return "\n".join(rows)
+
+
+def update_readme(
+    path: Path, svg: str, projects: Iterable[dict[str, Any]]
+) -> None:
+    """Synchronize the embedded asset, standalone link, and text fallback."""
+    source = path.read_text(encoding="utf-8")
+    cache_key = svg_cache_key(svg)
+    standalone_pattern = (
+        r"https://cdn\.jsdelivr\.net/gh/aiqubits/aiqubits@main/assets/"
+        r"profile-signal(?:-[0-9a-f]{12})?\.svg(?:\?v=[^\"]+)?"
+    )
+    updated, href_replacements = re.subn(
+        rf'href="{standalone_pattern}"',
+        f'href="{standalone_svg_url(cache_key)}"',
         source,
     )
-    if replacements != 2:
+    updated, src_replacements = re.subn(
+        r'src="\./assets/profile-signal\.svg(?:\?v=[^\"]+)?"',
+        f'src="./assets/profile-signal.svg?v={cache_key}"',
+        updated,
+    )
+    project_rows = readme_project_rows(projects)
+    updated, project_replacements = re.subn(
+        r"(?s)(<!-- profile-signal-projects:start -->\n).*?"
+        r"(\n<!-- profile-signal-projects:end -->)",
+        lambda match: f"{match.group(1)}{project_rows}{match.group(2)}",
+        updated,
+    )
+    if (
+        href_replacements != 1
+        or src_replacements != 1
+        or project_replacements != 1
+    ):
         raise SystemExit(
-            f"Expected linked profile-signal.svg preview in {path}, found {replacements} URLs"
+            f"Expected one standalone link, embedded preview, and project list in "
+            f"{path}; found {href_replacements}, {src_replacements}, and "
+            f"{project_replacements}"
         )
     if updated != source:
         path.write_text(updated, encoding="utf-8")
@@ -587,13 +747,7 @@ def render_svg(
     end: date,
     projects: list[dict[str, Any]],
 ) -> str:
-    project_count = len(projects)
-    total_external_prs = sum(project["prs"] for project in projects)
-    projects = list(projects[:TOP_PROJECT_LIMIT])
-    display_rng = random.Random(
-        "|".join(sorted(project["repository"] for project in projects))
-    )
-    display_rng.shuffle(projects)
+    projects = display_projects(projects)
     ferris_artwork = ferris_symbol(FERRIS_ASSET)
     left, top = 64.0, 512.0
     cell, gap = 16.0, 5.0
@@ -693,18 +847,13 @@ def render_svg(
 </g>'''
 
     route_markup = f'<path class="route" d="{route}"/>' if route else ""
-    project_summary = (
-        f"{len(projects)} SHOWN FROM {project_count} PROJECTS · {total_external_prs} MERGED PRS"
-        if projects
-        else "NO MERGED EXTERNAL PRS FOUND"
-    )
     top_project_desc = ", ".join(
         f"{project['repository']} plus {project['commits']}" for project in projects
     )
 
     return f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:serif="http://www.serif.com/" width="100%" height="100%" viewBox="0 0 {WIDTH} {HEIGHT}" preserveAspectRatio="xMidYMid meet" style="display:block;background:#0d1117" role="img" aria-labelledby="title desc">
 <title id="title">AIQUBITS open-source orbit and contribution crab</title>
-<desc id="desc">Top external projects by commits in merged pull requests: {escape(top_project_desc)}. Hover or focus a project to pause the orbit; activate it to open the GitHub repository. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
+<desc id="desc">External projects with GitHub-recorded commit or pull request contribution activity in the last two calendar years, ranked by all-time commits in merged pull requests: {escape(top_project_desc)}. Hover a project to pause the orbit; activate it to open the GitHub repository. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
 <defs>
   <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#07130e"/></linearGradient>
   <filter id="green-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -713,10 +862,11 @@ def render_svg(
   <style>
     text{{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
     .head{{fill:#39ff88;font-size:15px;letter-spacing:1.2px}}.sub{{fill:#7d8590;font-size:11px}}.month{{fill:#7d8590;font-size:10px}}.weekday{{fill:#7d8590;font-size:10px}}
-    .field-line{{stroke:#21262d;stroke-width:1}}.project-link,.project{{cursor:pointer}}.project-shell{{fill:#121b19;fill-opacity:.94;stroke:#2a4136;stroke-width:1}}.project:hover .project-shell,.project-link:focus .project-shell{{stroke:#7ee787;filter:url(#green-glow)}}
+    .field-line{{stroke:#21262d;stroke-width:1}}.project-link,.project{{cursor:pointer}}.project-shell{{fill:#121b19;fill-opacity:.94;stroke:#2a4136;stroke-width:1}}.project:hover .project-shell,.project-link:focus-visible .project-shell{{stroke:#7ee787;filter:url(#green-glow)}}
     .project-name{{fill:#d8dee4;font-size:13px}}.commit-count{{fill:#ffb86b;font-weight:600}}
     {"".join(project_animations)}
-    .project-field:hover .project,.project-field:focus-within .project{{animation-play-state:paused}}
+    .project-field:hover .project{{animation-play-state:paused}}
+    .project-field.resume-after-click .project{{animation-play-state:running}}
     .slot{{fill:#161b22;stroke:#21262d;stroke-width:.7}}.day:hover .slot{{stroke:#7ee787}}.day:hover .activity{{filter:url(#green-glow)}}
     .route{{fill:none;stroke:#f0883e;stroke-width:.7;stroke-dasharray:1 9;stroke-linecap:round;opacity:.075}}
     .ferris-bob{{animation:ferris-bob 1.4s ease-in-out infinite alternate}}@keyframes ferris-bob{{to{{transform:translateY(-1.5px)}}}}
@@ -725,9 +875,8 @@ def render_svg(
 </defs>
 <rect width="{WIDTH}" height="{HEIGHT}" rx="18" fill="url(#background)" stroke="#30363d"/>
 
-<text x="30" y="35" class="head">/MERGED/ORBIT</text><text x="1170" y="35" text-anchor="end" class="sub">EXTERNAL OPEN SOURCE · COMMIT COUNT IN MERGED PRS · TOP {TOP_PROJECT_LIMIT}</text>
+<text x="30" y="35" class="head">/MERGED/ORBIT</text><text x="1170" y="35" text-anchor="end" class="sub">GITHUB ACTIVE IN LAST 2Y · ALL-TIME COMMITS IN MERGED PRS · TOP {TOP_PROJECT_LIMIT}</text>
 <g class="project-field" aria-label="Top external projects">{"".join(project_nodes)}</g>
-<text x="30" y="414" class="sub">RANDOM WALK · HOVER TO PAUSE · CLICK PROJECT TO OPEN · +N = COMMITS</text><text x="1170" y="414" text-anchor="end" class="sub">{project_summary}</text>
 <path class="field-line" d="M30 432H1170"/>
 
 <text x="30" y="464" class="head">/CONTRIBUTION/CRAB</text><text x="1170" y="464" text-anchor="end" class="sub">{start.isoformat()} → {end.isoformat()} · {total} CONTRIBUTIONS</text>
@@ -736,6 +885,18 @@ def render_svg(
 {route_markup}{crab}
 <g transform="translate(64 712)" aria-hidden="true"><text class="sub" y="10">LESS</text><rect class="slot" x="38" width="11" height="11" rx="2"/><rect x="54" width="11" height="11" rx="2" fill="#0e4429"/><rect x="70" width="11" height="11" rx="2" fill="#006d32"/><rect x="86" width="11" height="11" rx="2" fill="#26a641"/><rect x="102" width="11" height="11" rx="2" fill="#39d353"/><text class="sub" x="121" y="10">MORE</text></g>
 <text x="1140" y="722" text-anchor="end" class="sub">ORIGINAL FERRIS ARTWORK · EATS ACTIVE DAYS · {CRAB_DURATION}S LOOP</text>
+<script><![CDATA[
+(() => {{
+  const field = document.querySelector(".project-field");
+  if (!field) return;
+  field.querySelectorAll(".project-link").forEach((link) => {{
+    link.addEventListener("click", () => field.classList.add("resume-after-click"));
+  }});
+  field.addEventListener("pointermove", () => {{
+    field.classList.remove("resume-after-click");
+  }});
+}})();
+]]></script>
 </svg>'''
 
 
@@ -746,17 +907,31 @@ def main() -> None:
         weeks, total, start, end = load_offline_calendar(Path(OFFLINE_SVG))
         projects = load_offline_projects(OFFLINE_PROJECTS)
     else:
-        weeks, total, start, end = fetch_calendar(datetime.now(timezone.utc).date())
-        projects = aggregate_external_projects(fetch_merged_prs())
+        today = datetime.now(timezone.utc).date()
+        weeks, total, start, end = fetch_calendar(today)
+        active_repositories = fetch_recent_active_repositories(today)
+        projects = filter_recent_active_projects(
+            aggregate_external_projects(fetch_merged_prs()), active_repositories
+        )
 
     svg = render_svg(weeks, total, start, end, projects)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(svg, encoding="utf-8")
+    previous_cache_key = (
+        readme_standalone_cache_key(README_PATH)
+        if README_PATH and README_PATH.exists()
+        else None
+    )
+    write_standalone_asset(
+        OUT,
+        svg,
+        retain_cache_keys=[previous_cache_key] if previous_cache_key else [],
+    )
     if README_PATH:
-        update_readme_cache_key(README_PATH, svg)
+        update_readme(README_PATH, svg, projects)
     print(
         f"generated {OUT}: {len(weeks)} weeks, {total} contributions, "
-        f"{min(TOP_PROJECT_LIMIT, len(projects))} external projects"
+        f"{min(TOP_PROJECT_LIMIT, len(projects))} recently active external projects"
     )
 
 

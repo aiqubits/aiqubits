@@ -103,6 +103,113 @@ class ProjectTests(unittest.TestCase):
             ],
         )
 
+    def test_recent_filter_preserves_all_time_commit_totals(self) -> None:
+        projects = [
+            {"repository": "external/alpha", "commits": 50, "prs": 8},
+            {"repository": "other/inactive", "commits": 99, "prs": 9},
+        ]
+
+        self.assertEqual(
+            signal.filter_recent_active_projects(projects, {"EXTERNAL/ALPHA"}),
+            [{"repository": "external/alpha", "commits": 50, "prs": 8}],
+        )
+
+    def test_recent_activity_uses_commit_and_pr_repositories_across_two_years(
+        self,
+    ) -> None:
+        responses = [
+            {
+                "user": {
+                    "contributionsCollection": {
+                        "commitContributionsByRepository": [
+                            {
+                                "repository": {
+                                    "nameWithOwner": "external/alpha",
+                                    "owner": {"login": "external"},
+                                }
+                            },
+                            {
+                                "repository": {
+                                    "nameWithOwner": "aiqubits/internal",
+                                    "owner": {"login": "AIQUBITS"},
+                                }
+                            },
+                        ],
+                        "pullRequestContributionsByRepository": [
+                            {
+                                "repository": {
+                                    "nameWithOwner": "other/beta",
+                                    "owner": {"login": "other"},
+                                }
+                            }
+                        ],
+                    }
+                }
+            },
+            {
+                "user": {
+                    "contributionsCollection": {
+                        "commitContributionsByRepository": [
+                            {
+                                "repository": {
+                                    "nameWithOwner": "other/beta",
+                                    "owner": {"login": "other"},
+                                }
+                            }
+                        ],
+                        "pullRequestContributionsByRepository": [
+                            {
+                                "repository": {
+                                    "nameWithOwner": "new/gamma",
+                                    "owner": {"login": "new"},
+                                }
+                            }
+                        ],
+                    }
+                }
+            },
+            {
+                "user": {
+                    "contributionsCollection": {
+                        "commitContributionsByRepository": [],
+                        "pullRequestContributionsByRepository": [],
+                    }
+                }
+            },
+        ]
+
+        with patch.object(signal, "graphql", side_effect=responses) as graphql:
+            repositories = signal.fetch_recent_active_repositories(date(2026, 8, 29))
+
+        self.assertEqual(repositories, {"external/alpha", "other/beta", "new/gamma"})
+        self.assertEqual(graphql.call_count, 3)
+        self.assertEqual(
+            signal.recent_activity_windows(date(2026, 8, 29)),
+            [
+                (date(2024, 8, 29), date(2025, 8, 28)),
+                (date(2025, 8, 29), date(2026, 8, 28)),
+                (date(2026, 8, 29), date(2026, 8, 29)),
+            ],
+        )
+        self.assertEqual(
+            signal.calendar_years_ago(date(2024, 2, 29), 2), date(2022, 2, 28)
+        )
+        previous_end = None
+        for call in graphql.call_args_list:
+            variables = call.args[1]
+            query_start = datetime.fromisoformat(
+                variables["from"].replace("Z", "+00:00")
+            )
+            query_end = datetime.fromisoformat(variables["to"].replace("Z", "+00:00"))
+            self.assertLess(query_end - query_start, timedelta(days=365))
+            self.assertEqual(
+                variables["maxRepositories"],
+                signal.RECENT_ACTIVITY_MAX_REPOSITORIES,
+            )
+            if previous_end is not None:
+                self.assertEqual(query_start.date(), previous_end + timedelta(days=1))
+            previous_end = query_end.date()
+
     def test_collision_paths_survive_varied_legal_repository_names(self) -> None:
         for trial in range(40):
             rng = random.Random(trial)
@@ -130,6 +237,14 @@ class ProjectTests(unittest.TestCase):
                     for path in paths
                 )
             )
+            self.assertGreater(signal.PROJECT_Y_MAX, 400)
+            for project, path in zip(projects, paths):
+                width = signal.project_width(project)
+                for x, y in path:
+                    self.assertGreaterEqual(x, signal.PROJECT_X_MIN)
+                    self.assertLessEqual(x + width, signal.PROJECT_X_MAX)
+                    self.assertGreaterEqual(y, signal.PROJECT_Y_MIN)
+                    self.assertLessEqual(y + 34.0, signal.PROJECT_Y_MAX)
 
     def test_long_repository_name_and_commit_count_stay_inside_label(self) -> None:
         repository = f"organization/{'long-repository-name-' * 6}"
@@ -153,23 +268,74 @@ class ProjectTests(unittest.TestCase):
 
 
 class ReadmeCacheTests(unittest.TestCase):
-    def test_cache_key_tracks_svg_content(self) -> None:
+    def test_readme_tracks_svg_content_and_projects(self) -> None:
         with TemporaryDirectory() as directory:
             readme = Path(directory) / "README.md"
             readme.write_text(
-                f'<a href="{signal.STANDALONE_SVG_URL}?v=old">\n'
+                '<a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/'
+                'assets/profile-signal.svg?v=old">\n'
                 '  <img src="./assets/profile-signal.svg?v=old" alt="signal">\n'
-                "</a>\n",
+                "</a>\n"
+                "<!-- profile-signal-projects:start -->\n"
+                "- old project\n"
+                "<!-- profile-signal-projects:end -->\n",
                 encoding="utf-8",
             )
             svg = "<svg>new content</svg>"
+            projects = [
+                {"repository": "external/alpha", "commits": 1, "prs": 1},
+                {"repository": "other/beta", "commits": 2, "prs": 1},
+            ]
 
-            signal.update_readme_cache_key(readme, svg)
+            signal.update_readme(readme, svg, projects)
 
             expected = sha256(svg.encode()).hexdigest()[:12]
             updated = readme.read_text(encoding="utf-8")
-            self.assertEqual(updated.count(f"profile-signal.svg?v={expected}"), 2)
+            self.assertIn(
+                f'href="{signal.standalone_svg_url(expected)}"', updated
+            )
+            self.assertIn(f'profile-signal.svg?v={expected}', updated)
             self.assertNotIn("?v=old", updated)
+            self.assertNotIn("old project", updated)
+            self.assertIn(
+                "[external/alpha](https://github.com/external/alpha)", updated
+            )
+            self.assertIn("`+1` merged-PR commit", updated)
+            self.assertIn("`+2` merged-PR commits", updated)
+
+    def test_standalone_asset_retains_only_requested_previous_version(self) -> None:
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "profile-signal.svg"
+            previous = Path(directory) / "profile-signal-000000000000.svg"
+            stale = Path(directory) / "profile-signal-111111111111.svg"
+            unrelated = Path(directory) / "profile-signal-preview.svg"
+            previous.write_text("old", encoding="utf-8")
+            stale.write_text("stale", encoding="utf-8")
+            unrelated.write_text("keep", encoding="utf-8")
+            svg = "<svg>new content</svg>"
+
+            standalone = signal.write_standalone_asset(
+                output, svg, retain_cache_keys=["000000000000"]
+            )
+
+            expected = sha256(svg.encode()).hexdigest()[:12]
+            self.assertEqual(standalone.name, f"profile-signal-{expected}.svg")
+            self.assertEqual(standalone.read_text(encoding="utf-8"), svg)
+            self.assertTrue(previous.exists())
+            self.assertFalse(stale.exists())
+            self.assertTrue(unrelated.exists())
+
+    def test_previous_standalone_key_is_read_from_readme(self) -> None:
+        with TemporaryDirectory() as directory:
+            readme = Path(directory) / "README.md"
+            readme.write_text(
+                f'<a href="{signal.standalone_svg_url("123456789abc")}">signal</a>',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                signal.readme_standalone_cache_key(readme), "123456789abc"
+            )
 
 
 class CheckedInAssetTests(unittest.TestCase):
@@ -179,27 +345,82 @@ class CheckedInAssetTests(unittest.TestCase):
         self.assertIn("https://github.com/keycompute/keycompute", readme)
         self.assertIn("https://github.com/aiqubits/rust-agent", readme)
         self.assertNotIn("Open-source contributions", readme)
-        self.assertIn(
-            "Meanwhile, I am a contributor to the following open-source projects.",
+        summary = (
+            "<summary>I am a contributor to the following open-source "
+            "projects.</summary>"
+        )
+        self.assertEqual(readme.count(summary), 1)
+        self.assertNotIn("Meanwhile,", readme)
+        self.assertNotIn("Open-source projects shown in the animation", readme)
+        embedded_keys = re.findall(
+            r"profile-signal\.svg\?v=([0-9a-f]{12})", readme
+        )
+        standalone_keys = re.findall(
+            re.escape(signal.STANDALONE_SVG_URL_PREFIX) + r"([0-9a-f]{12})\.svg",
             readme,
         )
-        cache_keys = re.findall(r"profile-signal\.svg\?v=([0-9a-f]{12})", readme)
-        self.assertEqual(len(cache_keys), 2)
-        self.assertIn(
-            f'<a class="profile-signal-link" href="{signal.STANDALONE_SVG_URL}?',
-            readme,
-        )
+        self.assertEqual(len(embedded_keys), 1)
+        self.assertEqual(len(standalone_keys), 1)
         self.assertNotIn("raw.githubusercontent.com", readme)
-        self.assertIn('target="_blank"', readme)
+        self.assertNotIn('target="_blank"', readme)
+        self.assertNotIn('rel="noopener noreferrer"', readme)
+        self.assertNotIn('class="profile-signal-', readme)
         self.assertIn('<p align="center">', readme)
-        self.assertIn('<img class="profile-signal-image" src="./assets/', readme)
+        self.assertIn('<img src="./assets/', readme)
+        self.assertIn(
+            'alt="Diagram showing recently active external projects ranked by '
+            'all-time merged-PR commits above a contribution calendar traversed '
+            'by Ferris."',
+            readme,
+        )
+        self.assertIn("<details>", readme)
+        self.assertLess(readme.index("<details>"), readme.index('<p align="center">'))
+        self.assertEqual(readme.count("<!-- profile-signal-projects:start -->"), 1)
+        self.assertEqual(readme.count("<!-- profile-signal-projects:end -->"), 1)
+        readme_projects = re.findall(
+            r"- \[(?P<repository>[^]]+)\]"
+            r"\(https://github\.com/(?P=repository)\) — `\+(?P<commits>\d+)` "
+            r"merged-PR commits?",
+            readme,
+        )
+        svg_root = ET.parse(ROOT / "assets/profile-signal.svg").getroot()
+        svg_projects = []
+        for group in svg_root.findall(".//svg:g", SVG_NAMESPACE):
+            if not (group.get("class") or "").startswith("project project-"):
+                continue
+            repository = group.find(".//svg:text[@class='project-name']", SVG_NAMESPACE)
+            commits = group.find(".//svg:text[@class='commit-count']", SVG_NAMESPACE)
+            self.assertIsNotNone(repository)
+            self.assertIsNotNone(commits)
+            svg_projects.append((repository.text, commits.text.removeprefix("+")))
+        self.assertEqual(readme_projects, svg_projects)
+        expected_key = sha256(
+            (ROOT / "assets/profile-signal.svg").read_bytes()
+        ).hexdigest()[:12]
         self.assertEqual(
-            set(cache_keys),
-            {
-                sha256((ROOT / "assets/profile-signal.svg").read_bytes()).hexdigest()[
-                    :12
-                ]
-            },
+            set(embedded_keys + standalone_keys),
+            {expected_key},
+        )
+        standalone = ROOT / "assets" / f"profile-signal-{expected_key}.svg"
+        self.assertTrue(standalone.is_file())
+        self.assertLessEqual(
+            len(list((ROOT / "assets").glob("profile-signal-????????????.svg"))),
+            2,
+        )
+        self.assertEqual(
+            standalone.read_bytes(),
+            (ROOT / "assets/profile-signal.svg").read_bytes(),
+        )
+
+    def test_workflow_commits_content_addressed_asset(self) -> None:
+        workflow = (ROOT / ".github/workflows/commit-signal.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("'assets/profile-signal-*.svg'", workflow)
+        self.assertIn(
+            "git add -A -- assets/profile-signal.svg "
+            "'assets/profile-signal-*.svg' README.md",
+            workflow,
         )
 
     def test_svg_animation_contract(self) -> None:
@@ -287,9 +508,20 @@ class CheckedInAssetTests(unittest.TestCase):
         source = svg_path.read_text(encoding="utf-8")
         self.assertEqual(source.count("@keyframes project-motion-"), 10)
         self.assertIn(
-            ".project-field:hover .project,.project-field:focus-within .project{animation-play-state:paused}",
+            ".project-field:hover .project{animation-play-state:paused}", source
+        )
+        self.assertIn(
+            ".project-field.resume-after-click .project{animation-play-state:running}",
             source,
         )
+        self.assertIn('field.classList.add("resume-after-click")', source)
+        self.assertIn('field.classList.remove("resume-after-click")', source)
+        self.assertNotIn("focus-within", source)
+        self.assertIn(
+            "GITHUB ACTIVE IN LAST 2Y · ALL-TIME COMMITS IN MERGED PRS", source
+        )
+        self.assertNotIn("RANDOM WALK · HOVER TO PAUSE", source)
+        self.assertNotIn("SHOWN FROM", source)
         self.assertNotIn("<animateTransform", source)
         self.assertIn(".ferris,.route{display:none}", source)
         self.assertIn(".project-0{transform:translate(", source)
