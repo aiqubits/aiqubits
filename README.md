@@ -9,21 +9,21 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 
 <!-- profile-signal-projects:start -->
 - [boxlite-ai/boxlite](https://github.com/boxlite-ai/boxlite) — `+4` merged-PR commits
-- [IntensiveCoLearning/Ethereum-Protocol-Fellowship](https://github.com/IntensiveCoLearning/Ethereum-Protocol-Fellowship) — `+2` merged-PR commits
+- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+1` merged-PR commit
 - [conflux-fans/conflux-bounties](https://github.com/conflux-fans/conflux-bounties) — `+27` merged-PR commits
-- [OneBlockPlus/polkadot-hackathon-2024](https://github.com/OneBlockPlus/polkadot-hackathon-2024) — `+6` merged-PR commits
-- [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits
-- [conflux-fans/summerhackfest-2025](https://github.com/conflux-fans/summerhackfest-2025) — `+1` merged-PR commit
-- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
+- [IntensiveCoLearning/Ethereum-Protocol-Fellowship](https://github.com/IntensiveCoLearning/Ethereum-Protocol-Fellowship) — `+2` merged-PR commits
 - [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
-- [OneBlockPlus/polkadot-hackathon-2025](https://github.com/OneBlockPlus/polkadot-hackathon-2025) — `+24` merged-PR commits
+- [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits
 - [cloud-hypervisor/cloud-hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) — `+2` merged-PR commits
+- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
+- [OneBlockPlus/polkadot-hackathon-2024](https://github.com/OneBlockPlus/polkadot-hackathon-2024) — `+6` merged-PR commits
+- [OneBlockPlus/polkadot-hackathon-2025](https://github.com/OneBlockPlus/polkadot-hackathon-2025) — `+24` merged-PR commits
 <!-- profile-signal-projects:end -->
 
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-66c9b3e786b3.svg">
-    <img src="./assets/profile-signal.svg?v=66c9b3e786b3" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-a3fad0ac267e.svg">
+    <img src="./assets/profile-signal.svg?v=a3fad0ac267e" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>
