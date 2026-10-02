@@ -23,7 +23,7 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-d5d71eefc192.svg">
-    <img src="./assets/profile-signal.svg?v=d5d71eefc192" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-651249a271a5.svg">
+    <img src="./assets/profile-signal.svg?v=651249a271a5" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>
