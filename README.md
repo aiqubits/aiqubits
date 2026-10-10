@@ -8,22 +8,22 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 <summary>I am also a contributor to the following open-source projects.</summary>
 
 <!-- profile-signal-projects:start -->
-- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
-- [OneBlockPlus/polkadot-hackathon-2024](https://github.com/OneBlockPlus/polkadot-hackathon-2024) — `+6` merged-PR commits
-- [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
-- [conflux-fans/conflux-bounties](https://github.com/conflux-fans/conflux-bounties) — `+27` merged-PR commits
-- [OneBlockPlus/polkadot-hackathon-2025](https://github.com/OneBlockPlus/polkadot-hackathon-2025) — `+24` merged-PR commits
-- [IntensiveCoLearning/Ethereum-Protocol-Fellowship](https://github.com/IntensiveCoLearning/Ethereum-Protocol-Fellowship) — `+2` merged-PR commits
-- [cloud-hypervisor/cloud-hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) — `+3` merged-PR commits
+- [keycompute/keycompute](https://github.com/keycompute/keycompute) — `+1` merged-PR commit
 - [boxlite-ai/boxlite](https://github.com/boxlite-ai/boxlite) — `+4` merged-PR commits
-- [OneBlockPlus/polkadot-mini-hackathon-2026-03](https://github.com/OneBlockPlus/polkadot-mini-hackathon-2026-03) — `+4` merged-PR commits
+- [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
+- [cloud-hypervisor/cloud-hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) — `+4` merged-PR commits
+- [DioxusLabs/awesome-dioxus](https://github.com/DioxusLabs/awesome-dioxus) — `+1` merged-PR commit
+- [move-cn/letsmove](https://github.com/move-cn/letsmove) — `+3` merged-PR commits
+- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
 - [ethereum/go-ethereum](https://github.com/ethereum/go-ethereum) — `+2` merged-PR commits
+- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+1` merged-PR commit
+- [ethpanda-org/ETHShanghai-2025](https://github.com/ethpanda-org/ETHShanghai-2025) — `+1` merged-PR commit
 <!-- profile-signal-projects:end -->
 
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-416551a8a613.svg">
-    <img src="./assets/profile-signal.svg?v=416551a8a613" width="1200" alt="Diagram showing recently active external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-37c5d6eafeff.svg">
+    <img src="./assets/profile-signal.svg?v=37c5d6eafeff" width="1200" alt="Diagram showing external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>

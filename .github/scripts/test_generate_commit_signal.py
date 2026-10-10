@@ -93,6 +93,27 @@ class ProjectTests(unittest.TestCase):
                 },
                 "commits": {"totalCount": 99},
             },
+            {
+                "repository": {
+                    "nameWithOwner": "OneBlockPlus/hidden",
+                    "owner": {"login": "OneBlockPlus"},
+                },
+                "commits": {"totalCount": 98},
+            },
+            {
+                "repository": {
+                    "nameWithOwner": "conflux-fans/hidden",
+                    "owner": {"login": "conflux-fans"},
+                },
+                "commits": {"totalCount": 97},
+            },
+            {
+                "repository": {
+                    "nameWithOwner": "IntensiveCoLearning/hidden",
+                    "owner": {"login": "IntensiveCoLearning"},
+                },
+                "commits": {"totalCount": 96},
+            },
         ]
 
         self.assertEqual(
@@ -103,112 +124,29 @@ class ProjectTests(unittest.TestCase):
             ],
         )
 
-    def test_recent_filter_preserves_all_time_commit_totals(self) -> None:
+    def test_excluded_project_owners_are_filtered_case_insensitively(self) -> None:
         projects = [
             {"repository": "external/alpha", "commits": 50, "prs": 8},
-            {"repository": "other/inactive", "commits": 99, "prs": 9},
+            {"repository": "OneBlockPlus/hackathon", "commits": 99, "prs": 9},
+            {"repository": "CONFLUX-FANS/bounties", "commits": 98, "prs": 9},
+            {
+                "repository": "intensivecolearning/fellowship",
+                "commits": 97,
+                "prs": 9,
+            },
         ]
 
         self.assertEqual(
-            signal.filter_recent_active_projects(projects, {"EXTERNAL/ALPHA"}),
+            signal.filter_excluded_projects(projects),
             [{"repository": "external/alpha", "commits": 50, "prs": 8}],
         )
 
-    def test_recent_activity_uses_commit_and_pr_repositories_across_two_years(
-        self,
-    ) -> None:
-        responses = [
-            {
-                "user": {
-                    "contributionsCollection": {
-                        "commitContributionsByRepository": [
-                            {
-                                "repository": {
-                                    "nameWithOwner": "external/alpha",
-                                    "owner": {"login": "external"},
-                                }
-                            },
-                            {
-                                "repository": {
-                                    "nameWithOwner": "aiqubits/internal",
-                                    "owner": {"login": "AIQUBITS"},
-                                }
-                            },
-                        ],
-                        "pullRequestContributionsByRepository": [
-                            {
-                                "repository": {
-                                    "nameWithOwner": "other/beta",
-                                    "owner": {"login": "other"},
-                                }
-                            }
-                        ],
-                    }
-                }
-            },
-            {
-                "user": {
-                    "contributionsCollection": {
-                        "commitContributionsByRepository": [
-                            {
-                                "repository": {
-                                    "nameWithOwner": "other/beta",
-                                    "owner": {"login": "other"},
-                                }
-                            }
-                        ],
-                        "pullRequestContributionsByRepository": [
-                            {
-                                "repository": {
-                                    "nameWithOwner": "new/gamma",
-                                    "owner": {"login": "new"},
-                                }
-                            }
-                        ],
-                    }
-                }
-            },
-            {
-                "user": {
-                    "contributionsCollection": {
-                        "commitContributionsByRepository": [],
-                        "pullRequestContributionsByRepository": [],
-                    }
-                }
-            },
-        ]
-
-        with patch.object(signal, "graphql", side_effect=responses) as graphql:
-            repositories = signal.fetch_recent_active_repositories(date(2026, 8, 29))
-
-        self.assertEqual(repositories, {"external/alpha", "other/beta", "new/gamma"})
-        self.assertEqual(graphql.call_count, 3)
+    def test_offline_projects_filter_excluded_owners(self) -> None:
+        payload = '[{"repository":"external/alpha","commits":2},{"repository":"OneBlockPlus/old","commits":99}]'
         self.assertEqual(
-            signal.recent_activity_windows(date(2026, 8, 29)),
-            [
-                (date(2024, 8, 29), date(2025, 8, 28)),
-                (date(2025, 8, 29), date(2026, 8, 28)),
-                (date(2026, 8, 29), date(2026, 8, 29)),
-            ],
+            signal.load_offline_projects(payload),
+            [{"repository": "external/alpha", "commits": 2, "prs": 1}],
         )
-        self.assertEqual(
-            signal.calendar_years_ago(date(2024, 2, 29), 2), date(2022, 2, 28)
-        )
-        previous_end = None
-        for call in graphql.call_args_list:
-            variables = call.args[1]
-            query_start = datetime.fromisoformat(
-                variables["from"].replace("Z", "+00:00")
-            )
-            query_end = datetime.fromisoformat(variables["to"].replace("Z", "+00:00"))
-            self.assertLess(query_end - query_start, timedelta(days=365))
-            self.assertEqual(
-                variables["maxRepositories"],
-                signal.RECENT_ACTIVITY_MAX_REPOSITORIES,
-            )
-            if previous_end is not None:
-                self.assertEqual(query_start.date(), previous_end + timedelta(days=1))
-            previous_end = query_end.date()
 
     def test_collision_paths_survive_varied_legal_repository_names(self) -> None:
         for trial in range(40):
@@ -368,9 +306,8 @@ class CheckedInAssetTests(unittest.TestCase):
         self.assertIn('<p align="center">', readme)
         self.assertIn('<img src="./assets/', readme)
         self.assertIn(
-            'alt="Diagram showing recently active external projects ranked by '
-            'all-time merged-PR commits above a contribution calendar traversed '
-            'by Ferris."',
+            'alt="Diagram showing external projects ranked by all-time '
+            'merged-PR commits above a contribution calendar traversed by Ferris."',
             readme,
         )
         self.assertIn("<details>", readme)
@@ -382,6 +319,13 @@ class CheckedInAssetTests(unittest.TestCase):
             r"\(https://github\.com/(?P=repository)\) — `\+(?P<commits>\d+)` "
             r"merged-PR commits?",
             readme,
+        )
+        self.assertTrue(
+            all(
+                repository.split("/", 1)[0].casefold()
+                not in signal.EXCLUDED_PROJECT_OWNERS
+                for repository, _ in readme_projects
+            )
         )
         svg_root = ET.parse(ROOT / "assets/profile-signal.svg").getroot()
         svg_projects = []
@@ -517,9 +461,8 @@ class CheckedInAssetTests(unittest.TestCase):
         self.assertIn('field.classList.add("resume-after-click")', source)
         self.assertIn('field.classList.remove("resume-after-click")', source)
         self.assertNotIn("focus-within", source)
-        self.assertIn(
-            "GITHUB ACTIVE IN LAST 2Y · ALL-TIME COMMITS IN MERGED PRS", source
-        )
+        self.assertIn("ALL-TIME COMMITS IN MERGED PRS · TOP 10", source)
+        self.assertNotIn("GITHUB ACTIVE IN LAST 2Y", source)
         self.assertNotIn("RANDOM WALK · HOVER TO PAUSE", source)
         self.assertNotIn("SHOWN FROM", source)
         self.assertNotIn("<animateTransform", source)

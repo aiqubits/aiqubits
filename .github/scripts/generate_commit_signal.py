@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Generate the animated SVG used by the aiqubits profile README.
 
-The upper field keeps external repositories with GitHub-recorded commit or PR
-contribution activity in the last two calendar years, ranks them by all-time
-commits contained in merged PRs, then displays the top ten in an unranked random
-walk. The lower field renders the last year of GitHub activity and lets Ferris
-consume each active day.
+The upper field ranks external repositories by all-time commits contained in
+merged PRs, excludes repositories owned by selected organizations, then
+displays the first ten in an unranked random walk. The lower field renders
+the last year of GitHub activity and lets Ferris consume each active day.
 """
 
 from __future__ import annotations
@@ -40,8 +39,6 @@ STANDALONE_SVG_URL_PREFIX = (
 
 WIDTH, HEIGHT = 1200, 760
 CALENDAR_DAYS = 365
-RECENT_ACTIVITY_YEARS = 2
-RECENT_ACTIVITY_MAX_REPOSITORIES = 100
 CRAB_DURATION = 120
 SWALLOW_FADE_SECONDS = 0.45
 PROJECT_DURATION = 120
@@ -52,6 +49,9 @@ PROJECT_GAP = 7.0
 PROJECT_X_MIN, PROJECT_X_MAX = 34.0, WIDTH - 34.0
 PROJECT_Y_MIN, PROJECT_Y_MAX = 58.0, 420.0
 TOP_PROJECT_LIMIT = 10
+EXCLUDED_PROJECT_OWNERS = frozenset(
+    {"oneblockplus", "conflux-fans", "intensivecolearning"}
+)
 GRAPHQL_URL = "https://api.github.com/graphql"
 
 CALENDAR_QUERY = """
@@ -78,21 +78,6 @@ query($query: String!, $after: String) {
       ... on PullRequest {
         merged
         commits { totalCount }
-        repository { nameWithOwner owner { login } }
-      }
-    }
-  }
-}
-"""
-
-RECENT_ACTIVITY_QUERY = """
-query($login: String!, $from: DateTime!, $to: DateTime!, $maxRepositories: Int!) {
-  user(login: $login) {
-    contributionsCollection(from: $from, to: $to) {
-      commitContributionsByRepository(maxRepositories: $maxRepositories) {
-        repository { nameWithOwner owner { login } }
-      }
-      pullRequestContributionsByRepository(maxRepositories: $maxRepositories) {
         repository { nameWithOwner owner { login } }
       }
     }
@@ -166,54 +151,21 @@ def fetch_merged_prs() -> list[dict[str, Any]]:
         cursor = page["pageInfo"]["endCursor"]
 
 
-def calendar_years_ago(day: date, years: int) -> date:
-    """Return the same calendar date in an earlier year, clamping leap day."""
-    try:
-        return day.replace(year=day.year - years)
-    except ValueError:
-        return day.replace(year=day.year - years, day=28)
+def is_excluded_repository(repository: str) -> bool:
+    """Return whether a repository belongs to an organization we hide."""
+    owner, separator, _ = repository.partition("/")
+    return bool(separator) and owner.casefold() in EXCLUDED_PROJECT_OWNERS
 
 
-def recent_activity_windows(today: date) -> list[tuple[date, date]]:
-    """Split the rolling two-year interval into GitHub-safe one-year windows."""
-    start = calendar_years_ago(today, RECENT_ACTIVITY_YEARS)
-    windows = []
-    while start <= today:
-        end = min(today, start + timedelta(days=CALENDAR_DAYS - 1))
-        windows.append((start, end))
-        start = end + timedelta(days=1)
-    return windows
-
-
-def fetch_recent_active_repositories(today: date) -> set[str]:
-    """Return repositories with GitHub contribution activity in the last 2 years."""
-    repositories: set[str] = set()
-    for start, end in recent_activity_windows(today):
-        data = graphql(
-            RECENT_ACTIVITY_QUERY,
-            {
-                "login": USER,
-                "from": f"{start.isoformat()}T00:00:00Z",
-                "to": f"{end.isoformat()}T23:59:59Z",
-                "maxRepositories": RECENT_ACTIVITY_MAX_REPOSITORIES,
-            },
-        )
-        user = data.get("user")
-        if not user:
-            raise SystemExit(f"GitHub user not found: {USER}")
-        collection = user["contributionsCollection"]
-        groups = (
-            collection["commitContributionsByRepository"],
-            collection["pullRequestContributionsByRepository"],
-        )
-        for group in groups:
-            for contribution in group:
-                repository = contribution.get("repository") or {}
-                owner = (repository.get("owner") or {}).get("login", "")
-                name = repository.get("nameWithOwner")
-                if name and owner.casefold() != USER.casefold():
-                    repositories.add(name)
-    return repositories
+def filter_excluded_projects(
+    projects: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Remove repositories owned by organizations omitted from both displays."""
+    return [
+        project
+        for project in projects
+        if not is_excluded_repository(project["repository"])
+    ]
 
 
 def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -222,7 +174,12 @@ def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str,
         repository = pr.get("repository") or {}
         owner = (repository.get("owner") or {}).get("login", "")
         name = repository.get("nameWithOwner")
-        if not name or owner.casefold() == USER.casefold():
+        if (
+            not name
+            or owner.casefold() == USER.casefold()
+            or owner.casefold() in EXCLUDED_PROJECT_OWNERS
+            or is_excluded_repository(name)
+        ):
             continue
         projects[name]["commits"] += int((pr.get("commits") or {}).get("totalCount", 0))
         projects[name]["prs"] += 1
@@ -233,16 +190,6 @@ def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str,
     return sorted(
         ranked, key=lambda item: (-item["commits"], item["repository"].casefold())
     )
-
-
-def filter_recent_active_projects(
-    projects: Iterable[dict[str, Any]], active_repositories: Iterable[str]
-) -> list[dict[str, Any]]:
-    """Keep recent repositories without changing their all-time commit totals."""
-    active = {repository.casefold() for repository in active_repositories}
-    return [
-        project for project in projects if project["repository"].casefold() in active
-    ]
 
 
 def load_offline_calendar(path: Path) -> tuple[list[dict[str, Any]], int, date, date]:
@@ -288,7 +235,8 @@ def load_offline_projects(raw: str) -> list[dict[str, Any]]:
         for item in payload
     ]
     return sorted(
-        projects, key=lambda item: (-item["commits"], item["repository"].casefold())
+        filter_excluded_projects(projects),
+        key=lambda item: (-item["commits"], item["repository"].casefold()),
     )
 
 
@@ -328,7 +276,7 @@ def write_standalone_asset(
 
 def display_projects(projects: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return the deterministic unranked order shared by SVG and README."""
-    displayed = list(projects)[:TOP_PROJECT_LIMIT]
+    displayed = filter_excluded_projects(projects)[:TOP_PROJECT_LIMIT]
     display_rng = random.Random(
         "|".join(sorted(project["repository"] for project in displayed))
     )
@@ -853,7 +801,7 @@ def render_svg(
 
     return f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:serif="http://www.serif.com/" width="100%" height="100%" viewBox="0 0 {WIDTH} {HEIGHT}" preserveAspectRatio="xMidYMid meet" style="display:block;background:#0d1117" role="img" aria-labelledby="title desc">
 <title id="title">AIQUBITS open-source orbit and contribution crab</title>
-<desc id="desc">External projects with GitHub-recorded commit or pull request contribution activity in the last two calendar years, ranked by all-time commits in merged pull requests: {escape(top_project_desc)}. Hover a project to pause the orbit; activate it to open the GitHub repository. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
+<desc id="desc">External projects ranked by all-time commits in merged pull requests: {escape(top_project_desc)}. Hover a project to pause the orbit; activate it to open the GitHub repository. Below, a crab travels between and consumes active days in the GitHub contribution calendar for {escape(USER)}.</desc>
 <defs>
   <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#07130e"/></linearGradient>
   <filter id="green-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -875,7 +823,7 @@ def render_svg(
 </defs>
 <rect width="{WIDTH}" height="{HEIGHT}" rx="18" fill="url(#background)" stroke="#30363d"/>
 
-<text x="30" y="35" class="head">/MERGED/ORBIT</text><text x="1170" y="35" text-anchor="end" class="sub">GITHUB ACTIVE IN LAST 2Y · ALL-TIME COMMITS IN MERGED PRS · TOP {TOP_PROJECT_LIMIT}</text>
+<text x="30" y="35" class="head">/MERGED/ORBIT</text><text x="1170" y="35" text-anchor="end" class="sub">ALL-TIME COMMITS IN MERGED PRS · TOP {TOP_PROJECT_LIMIT}</text>
 <g class="project-field" aria-label="Top external projects">{"".join(project_nodes)}</g>
 <path class="field-line" d="M30 432H1170"/>
 
@@ -909,10 +857,7 @@ def main() -> None:
     else:
         today = datetime.now(timezone.utc).date()
         weeks, total, start, end = fetch_calendar(today)
-        active_repositories = fetch_recent_active_repositories(today)
-        projects = filter_recent_active_projects(
-            aggregate_external_projects(fetch_merged_prs()), active_repositories
-        )
+        projects = aggregate_external_projects(fetch_merged_prs())
 
     svg = render_svg(weeks, total, start, end, projects)
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -931,7 +876,7 @@ def main() -> None:
         update_readme(README_PATH, svg, projects)
     print(
         f"generated {OUT}: {len(weeks)} weeks, {total} contributions, "
-        f"{min(TOP_PROJECT_LIMIT, len(projects))} recently active external projects"
+        f"{min(TOP_PROJECT_LIMIT, len(projects))} all-time external projects"
     )
 
 
