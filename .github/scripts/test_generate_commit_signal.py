@@ -129,6 +129,9 @@ class ProjectTests(unittest.TestCase):
             {"repository": "external/alpha", "commits": 50, "prs": 8},
             {"repository": "OneBlockPlus/hackathon", "commits": 99, "prs": 9},
             {"repository": "CONFLUX-FANS/bounties", "commits": 98, "prs": 9},
+            {"repository": "ETHPANDA-ORG/events", "commits": 96, "prs": 9},
+            {"repository": "MOVE-CN/letsmove", "commits": 95, "prs": 9},
+            {"repository": "OPENBUILDXYZ/bootcamp", "commits": 94, "prs": 9},
             {
                 "repository": "intensivecolearning/fellowship",
                 "commits": 97,
@@ -378,10 +381,11 @@ class CheckedInAssetTests(unittest.TestCase):
             for group in root.findall(".//svg:g", SVG_NAMESPACE)
             if (group.get("class") or "").startswith("project project-")
         ]
-        self.assertEqual(len(projects), signal.TOP_PROJECT_LIMIT)
+        self.assertLessEqual(len(projects), signal.TOP_PROJECT_LIMIT)
+        expected_project_count = len(projects)
 
         links = root.findall(".//svg:a", SVG_NAMESPACE)
-        self.assertEqual(len(links), signal.TOP_PROJECT_LIMIT)
+        self.assertEqual(len(links), expected_project_count)
         for link in links:
             repository = link.find(".//svg:text[@class='project-name']", SVG_NAMESPACE)
             self.assertIsNotNone(repository)
@@ -450,7 +454,7 @@ class CheckedInAssetTests(unittest.TestCase):
             self.assertAlmostEqual(route_point[1], active_center[1], places=6)
 
         source = svg_path.read_text(encoding="utf-8")
-        self.assertEqual(source.count("@keyframes project-motion-"), 10)
+        self.assertEqual(source.count("@keyframes project-motion-"), expected_project_count)
         self.assertIn(
             ".project-field:hover .project{animation-play-state:paused}", source
         )

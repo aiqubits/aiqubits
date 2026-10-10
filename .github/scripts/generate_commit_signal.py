@@ -50,7 +50,14 @@ PROJECT_X_MIN, PROJECT_X_MAX = 34.0, WIDTH - 34.0
 PROJECT_Y_MIN, PROJECT_Y_MAX = 58.0, 420.0
 TOP_PROJECT_LIMIT = 10
 EXCLUDED_PROJECT_OWNERS = frozenset(
-    {"oneblockplus", "conflux-fans", "intensivecolearning"}
+    {
+        "oneblockplus",
+        "conflux-fans",
+        "intensivecolearning",
+        "ethpanda-org",
+        "move-cn",
+        "openbuildxyz",
+    }
 )
 GRAPHQL_URL = "https://api.github.com/graphql"
 
