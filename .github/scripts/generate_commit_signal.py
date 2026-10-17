@@ -2,7 +2,8 @@
 """Generate the animated SVG used by the aiqubits profile README.
 
 The upper field ranks external repositories by all-time commits contained in
-merged PRs, excludes repositories owned by selected organizations, then
+authored merged PRs plus verified co-authored commits in other merged PRs,
+excludes repositories owned by selected organizations, then
 displays the first ten in an unranked random walk. The lower field renders
 the last year of GitHub activity and lets Ferris consume each active day.
 """
@@ -14,11 +15,17 @@ import math
 import os
 import random
 import re
+import sys
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from html import escape
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -57,9 +64,15 @@ EXCLUDED_PROJECT_OWNERS = frozenset(
         "ethpanda-org",
         "move-cn",
         "openbuildxyz",
+        "keycompute",
+        "aiqubits",
     }
 )
 GRAPHQL_URL = "https://api.github.com/graphql"
+REST_URL = "https://api.github.com"
+API_MAX_ATTEMPTS = 4
+API_RETRY_BASE_SECONDS = 2
+API_MAX_RETRY_WAIT_SECONDS = 300
 
 CALENDAR_QUERY = """
 query($login: String!, $from: DateTime!, $to: DateTime!) {
@@ -83,7 +96,9 @@ query($query: String!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
+        id
         merged
+        mergeCommit { oid }
         commits { totalCount }
         repository { nameWithOwner owner { login } }
       }
@@ -91,6 +106,144 @@ query($query: String!, $after: String) {
   }
 }
 """
+
+COAUTHORED_COMMIT_QUERY = """
+query($owner: String!, $name: String!, $oid: GitObjectID!,
+      $authorsAfter: String, $prsAfter: String) {
+  repository(owner: $owner, name: $name) {
+    nameWithOwner
+    owner { login }
+    object(oid: $oid) {
+      ... on Commit {
+        oid
+        authors(first: 100, after: $authorsAfter) {
+          nodes { user { login } }
+          pageInfo { hasNextPage endCursor }
+        }
+        associatedPullRequests(first: 100, after: $prsAfter) {
+          nodes { id merged repository { nameWithOwner } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def api_retry_delay(headers: Any, attempt: int, rate_limited: bool) -> float:
+    """Honor GitHub's retry hints; otherwise back off exponentially."""
+    hints = []
+    retry_after = headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            delay = float(retry_after)
+        except ValueError:
+            try:
+                delay = parsedate_to_datetime(retry_after).timestamp() - time.time()
+            except (TypeError, ValueError, OverflowError):
+                delay = None
+        if delay is not None and math.isfinite(delay):
+            hints.append(max(0, delay))
+    if headers.get("X-RateLimit-Remaining") == "0":
+        try:
+            delay = float(headers.get("X-RateLimit-Reset", "")) - time.time() + 1
+            if math.isfinite(delay):
+                hints.append(max(0, delay))
+        except ValueError:
+            pass
+    fallback = 60 if rate_limited and not hints else API_RETRY_BASE_SECONDS
+    return max([fallback * 2**attempt, *hints])
+
+
+def github_json(request: urllib.request.Request) -> Any:
+    """Retry read-only REST/GraphQL calls without hiding permanent failures."""
+    for attempt in range(API_MAX_ATTEMPTS):
+        headers: Any = {}
+        rate_limited = False
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                headers = response.headers
+                body = json.load(response)
+            if (
+                request.full_url.startswith(f"{REST_URL}/search/")
+                and isinstance(body, dict)
+                and body.get("incomplete_results")
+            ):
+                reason = "incomplete GitHub search results"
+            elif request.full_url != GRAPHQL_URL or not body.get("errors"):
+                return body
+            else:
+                errors = body["errors"]
+                messages = "; ".join(error.get("message", "GraphQL error") for error in errors)
+                retryable_types = {
+                    "RATE_LIMITED", "INTERNAL", "INTERNAL_SERVER_ERROR",
+                    "SERVICE_UNAVAILABLE",
+                }
+                if not all(
+                    (error.get("type") or (error.get("extensions") or {}).get("code"))
+                    in retryable_types
+                    or "rate limit" in error.get("message", "").lower()
+                    for error in errors
+                ):
+                    raise SystemExit(messages)
+                rate_limited = any(
+                    (error.get("type") or (error.get("extensions") or {}).get("code"))
+                    == "RATE_LIMITED"
+                    or "rate limit" in error.get("message", "").lower()
+                    for error in errors
+                )
+                reason = f"GraphQL: {messages}"
+        except urllib.error.HTTPError as error:
+            headers = error.headers or {}
+            try:
+                error_body = json.load(error)
+                message = ""
+                if isinstance(error_body, dict):
+                    message = str(error_body.get("message", ""))
+                    message += " ".join(
+                        str(item.get("message", ""))
+                        for item in error_body.get("errors", [])
+                    )
+            except (ValueError, UnicodeError, OSError, IncompleteRead):
+                message = ""
+            finally:
+                error.close()
+            rate_limited = error.code == 429 or (
+                error.code == 403
+                and (
+                    headers.get("Retry-After") is not None
+                    or headers.get("X-RateLimit-Remaining") == "0"
+                    or "rate limit" in message.lower()
+                )
+            )
+            if not rate_limited and error.code not in {408, 500, 502, 503, 504}:
+                raise
+            reason = f"HTTP {error.code}"
+        except (
+            urllib.error.URLError, TimeoutError, ConnectionError,
+            IncompleteRead, json.JSONDecodeError,
+        ) as error:
+            reason = type(error).__name__
+
+        if attempt + 1 == API_MAX_ATTEMPTS:
+            raise SystemExit(
+                f"GitHub API failed after {API_MAX_ATTEMPTS} attempts: {reason}"
+            )
+        delay = api_retry_delay(headers, attempt, rate_limited)
+        if delay > API_MAX_RETRY_WAIT_SECONDS:
+            raise SystemExit(
+                f"GitHub API requires a {delay:.0f}s wait, exceeding the "
+                f"{API_MAX_RETRY_WAIT_SECONDS}s retry budget: {reason}"
+            )
+        print(
+            f"GitHub API {reason}; retry {attempt + 1}/{API_MAX_ATTEMPTS - 1} "
+            f"in {delay:.1f}s",
+            file=sys.stderr,
+            flush=True,
+        )
+        time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def graphql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
@@ -108,14 +261,24 @@ def graphql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
             "User-Agent": "aiqubits-profile-signal",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = json.load(response)
-    if body.get("errors"):
-        messages = "; ".join(
-            error.get("message", "GraphQL error") for error in body["errors"]
-        )
-        raise SystemExit(messages)
-    return body["data"]
+    return github_json(request)["data"]
+
+
+def rest_get(path: str, parameters: dict[str, Any] | None = None) -> Any:
+    if not TOKEN:
+        raise SystemExit("GH_TOKEN is required for GitHub commit searches")
+    url = f"{REST_URL}{path}"
+    if parameters:
+        url += "?" + urllib.parse.urlencode(parameters)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "aiqubits-profile-signal",
+        },
+    )
+    return github_json(request)
 
 
 def fetch_calendar(today: date) -> tuple[list[dict[str, Any]], int, date, date]:
@@ -175,21 +338,141 @@ def filter_excluded_projects(
     ]
 
 
-def aggregate_external_projects(prs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def is_external_repository(repository: dict[str, Any]) -> bool:
+    name = repository.get("nameWithOwner")
+    owner = (repository.get("owner") or {}).get("login", "")
+    return bool(
+        name
+        and name.split("/", 1)[0].casefold() != USER.casefold()
+        and owner.casefold() != USER.casefold()
+        and owner.casefold() not in EXCLUDED_PROJECT_OWNERS
+        and not is_excluded_repository(name)
+    )
+
+
+def search_coauthored_commits() -> list[tuple[str, str]]:
+    """Discover candidates globally by trailer text, without a date cutoff."""
+    candidates: set[tuple[str, str]] = set()
+    page_number = 1
+    while True:
+        page = rest_get(
+            "/search/commits",
+            {
+                "q": f'"Co-authored-by: {USER}"',
+                "per_page": 100,
+                "page": page_number,
+            },
+        )
+        if page["total_count"] > 1000:
+            raise SystemExit(
+                "GitHub co-author search exceeds the 1000-result limit; "
+                "split the search before publishing"
+            )
+        for item in page["items"]:
+            repository = item["repository"]["full_name"]
+            if is_external_repository({"nameWithOwner": repository}):
+                candidates.add((repository, item["sha"]))
+        if page_number * 100 >= page["total_count"]:
+            return sorted(candidates)
+        page_number += 1
+
+
+def fetch_coauthored_commits() -> list[dict[str, Any]]:
+    """Verify account attribution and merged PRs in each candidate's repository."""
+    commits = []
+    for name, oid in search_coauthored_commits():
+        owner, repository_name = name.split("/", 1)
+        authors_after = prs_after = None
+        authors_done = prs_done = False
+        attributed = False
+        merged_pr_ids: set[str] = set()
+        while not (authors_done and prs_done):
+            repository = graphql(
+                COAUTHORED_COMMIT_QUERY,
+                {
+                    "owner": owner,
+                    "name": repository_name,
+                    "oid": oid,
+                    "authorsAfter": authors_after,
+                    "prsAfter": prs_after,
+                },
+            ).get("repository")
+            commit = (repository or {}).get("object")
+            if not commit:
+                raise SystemExit(f"Cannot verify co-authored commit {name}@{oid}")
+            if not authors_done:
+                authors = commit["authors"]
+                attributed |= any(
+                    ((actor or {}).get("user") or {}).get("login", "").casefold()
+                    == USER.casefold()
+                    for actor in authors["nodes"]
+                )
+                authors_done = not authors["pageInfo"]["hasNextPage"]
+                authors_after = authors["pageInfo"]["endCursor"]
+            if not prs_done:
+                prs = commit["associatedPullRequests"]
+                merged_pr_ids.update(
+                    pr["id"]
+                    for pr in prs["nodes"]
+                    if pr
+                    and pr["merged"]
+                    and pr["repository"]["nameWithOwner"].casefold()
+                    == repository["nameWithOwner"].casefold()
+                )
+                prs_done = not prs["pageInfo"]["hasNextPage"]
+                prs_after = prs["pageInfo"]["endCursor"]
+        if attributed and merged_pr_ids and is_external_repository(repository):
+            commits.append(
+                {
+                    "repository": {
+                        "nameWithOwner": repository["nameWithOwner"],
+                        "owner": repository["owner"],
+                    },
+                    "oid": oid,
+                    "pull_requests": sorted(merged_pr_ids),
+                }
+            )
+    return commits
+
+
+def aggregate_external_projects(
+    prs: Iterable[dict[str, Any]],
+    coauthored_commits: Iterable[dict[str, Any]] = (),
+) -> list[dict[str, Any]]:
     projects: dict[str, dict[str, Any]] = defaultdict(lambda: {"commits": 0, "prs": 0})
+    authored_pr_ids: set[str] = set()
+    covered_commits: set[tuple[str, str]] = set()
     for pr in prs:
         repository = pr.get("repository") or {}
-        owner = (repository.get("owner") or {}).get("login", "")
-        name = repository.get("nameWithOwner")
-        if (
-            not name
-            or owner.casefold() == USER.casefold()
-            or owner.casefold() in EXCLUDED_PROJECT_OWNERS
-            or is_excluded_repository(name)
-        ):
+        if not is_external_repository(repository):
             continue
+        name = repository["nameWithOwner"]
         projects[name]["commits"] += int((pr.get("commits") or {}).get("totalCount", 0))
         projects[name]["prs"] += 1
+        if pr.get("id"):
+            authored_pr_ids.add(pr["id"])
+        merge_oid = (pr.get("mergeCommit") or {}).get("oid")
+        if merge_oid:
+            covered_commits.add((name.casefold(), merge_oid))
+
+    counted_pr_ids = set(authored_pr_ids)
+    for commit in coauthored_commits:
+        repository = commit["repository"]
+        if not is_external_repository(repository):
+            continue
+        name = repository["nameWithOwner"]
+        pr_ids = set(commit["pull_requests"])
+        # Authored PR totals already include their original commits, even when
+        # a squash merge gives the final commit a different SHA.
+        if not pr_ids:
+            continue
+        key = (name.casefold(), commit["oid"])
+        if key not in covered_commits and not pr_ids & authored_pr_ids:
+            projects[name]["commits"] += 1
+        covered_commits.add(key)
+        projects[name]["prs"] += len(pr_ids - counted_pr_ids)
+        counted_pr_ids.update(pr_ids)
+
     ranked = [
         {"repository": repository, "commits": values["commits"], "prs": values["prs"]}
         for repository, values in projects.items()
@@ -864,7 +1147,9 @@ def main() -> None:
     else:
         today = datetime.now(timezone.utc).date()
         weeks, total, start, end = fetch_calendar(today)
-        projects = aggregate_external_projects(fetch_merged_prs())
+        projects = aggregate_external_projects(
+            fetch_merged_prs(), fetch_coauthored_commits()
+        )
 
     svg = render_svg(weeks, total, start, end, projects)
     OUT.parent.mkdir(parents=True, exist_ok=True)

@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import unittest
+import urllib.error
 from datetime import date, datetime, timedelta
 from hashlib import sha256
+from http.client import IncompleteRead
+from io import BytesIO, StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -18,6 +22,169 @@ import generate_commit_signal as signal
 
 ROOT = Path(__file__).resolve().parents[2]
 SVG_NAMESPACE = {"svg": "http://www.w3.org/2000/svg"}
+
+
+class ApiRetryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sleep = self.enterContext(patch.object(signal.time, "sleep"))
+        self.enterContext(patch.object(signal, "TOKEN", "test-token"))
+        self.enterContext(patch.object(signal.sys, "stderr", StringIO()))
+
+    @staticmethod
+    def response(body: dict, headers: dict | None = None) -> BytesIO:
+        response = BytesIO(json.dumps(body).encode())
+        response.headers = headers or {}
+        return response
+
+    @staticmethod
+    def http_error(code: int, headers: dict | None = None, message: str = "error") -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            signal.REST_URL, code, message, headers or {},
+            BytesIO(json.dumps({"message": message}).encode()),
+        )
+
+    def test_rest_and_graphql_retry_server_failure(self) -> None:
+        for api in ("rest", "graphql"):
+            with self.subTest(api=api):
+                self.sleep.reset_mock()
+                body = {"items": []} if api == "rest" else {"data": {"ok": True}}
+                with patch.object(signal.urllib.request, "urlopen", side_effect=[
+                    self.http_error(503), self.response(body),
+                ]) as urlopen:
+                    if api == "rest":
+                        result = signal.rest_get("/search/commits", {"q": "test"})
+                        self.assertEqual(result, body)
+                    else:
+                        self.assertEqual(signal.graphql("query { viewer { login } }", {}), body["data"])
+                self.assertEqual(urlopen.call_count, 2)
+                first, second = [call.args[0] for call in urlopen.call_args_list]
+                self.assertIs(first, second)
+                self.sleep.assert_called_once_with(2)
+
+    def test_incomplete_search_retries_the_same_page_without_using_partial_items(self) -> None:
+        def item(sha: str) -> dict:
+            return {"repository": {"full_name": "external/project"}, "sha": sha}
+
+        with patch.object(signal.urllib.request, "urlopen", side_effect=[
+            self.response({
+                "total_count": 2, "incomplete_results": True,
+                "items": [item("partial")],
+            }),
+            self.response({
+                "total_count": 1, "incomplete_results": False,
+                "items": [item("complete")],
+            }),
+        ]) as urlopen:
+            self.assertEqual(
+                signal.search_coauthored_commits(),
+                [("external/project", "complete")],
+            )
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertIs(urlopen.call_args_list[0].args[0], urlopen.call_args_list[1].args[0])
+        self.sleep.assert_called_once_with(2)
+
+    def test_incomplete_search_stops_after_retry_budget(self) -> None:
+        responses = [self.response({
+            "total_count": 1, "incomplete_results": True, "items": [],
+        }) for _ in range(signal.API_MAX_ATTEMPTS)]
+        with patch.object(signal.urllib.request, "urlopen", side_effect=responses) as urlopen:
+            with self.assertRaisesRegex(SystemExit, "failed after 4 attempts: incomplete GitHub search results"):
+                signal.search_coauthored_commits()
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [2, 4, 8])
+
+    def test_network_failures_back_off_and_stop_at_attempt_limit(self) -> None:
+        with patch.object(signal.urllib.request, "urlopen", side_effect=urllib.error.URLError("offline")) as urlopen:
+            with self.assertRaisesRegex(SystemExit, "failed after 4 attempts"):
+                signal.rest_get("/search/commits")
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [2, 4, 8])
+
+    def test_timeouts_and_truncated_responses_can_recover(self) -> None:
+        with patch.object(signal.urllib.request, "urlopen", side_effect=[
+            TimeoutError("timed out"), IncompleteRead(b"partial"),
+            self.response({"items": []}),
+        ]) as urlopen:
+            self.assertEqual(signal.rest_get("/search/commits"), {"items": []})
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [2, 4])
+
+    def test_permanent_http_errors_fail_without_retry(self) -> None:
+        for code in (401, 403, 404, 422):
+            with self.subTest(code=code):
+                with patch.object(signal.urllib.request, "urlopen", side_effect=self.http_error(code)) as urlopen:
+                    with self.assertRaises(urllib.error.HTTPError):
+                        signal.rest_get("/search/commits")
+                self.assertEqual(urlopen.call_count, 1)
+        self.sleep.assert_not_called()
+
+    def test_rate_limits_honor_headers_or_wait_one_minute(self) -> None:
+        cases = [
+            (429, {"Retry-After": "9"}, "error", 9),
+            (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "105"}, "error", 6),
+            (403, {}, "You have exceeded a secondary rate limit.", 60),
+            (503, {"Retry-After": "Thu, 01 Jan 1970 00:02:40 GMT"}, "error", 60),
+        ]
+        for code, headers, message, delay in cases:
+            with self.subTest(code=code, headers=headers):
+                self.sleep.reset_mock()
+                with patch.object(signal.time, "time", return_value=100):
+                    with patch.object(signal.urllib.request, "urlopen", side_effect=[
+                        self.http_error(code, headers, message), self.response({"items": []}),
+                    ]):
+                        self.assertEqual(signal.rest_get("/search/commits"), {"items": []})
+                self.sleep.assert_called_once_with(delay)
+
+    def test_http_200_graphql_rate_limit_retries_instead_of_using_partial_data(self) -> None:
+        with patch.object(signal.urllib.request, "urlopen", side_effect=[
+            self.response({
+                "data": {"partial": True},
+                "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
+            }, {"Retry-After": "12"}),
+            self.response({"data": {"ok": True}}),
+        ]) as urlopen:
+            self.assertEqual(signal.graphql("query { viewer { login } }", {}), {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.sleep.assert_called_once_with(12)
+
+    def test_graphql_rate_limit_message_without_type_is_retried(self) -> None:
+        body = {"errors": [{"message": "You have exceeded a secondary rate limit."}]}
+        for status in (200, 403):
+            with self.subTest(status=status):
+                self.sleep.reset_mock()
+                failure = self.response(body) if status == 200 else urllib.error.HTTPError(
+                    signal.GRAPHQL_URL, 403, "Forbidden", {},
+                    BytesIO(json.dumps(body).encode()),
+                )
+                with patch.object(signal.urllib.request, "urlopen", side_effect=[
+                    failure, self.response({"data": {"ok": True}}),
+                ]) as urlopen:
+                    self.assertEqual(signal.graphql("query { viewer { login } }", {}), {"ok": True})
+                self.assertEqual(urlopen.call_count, 2)
+                self.sleep.assert_called_once_with(60)
+
+    def test_graphql_internal_error_retries_but_validation_errors_do_not(self) -> None:
+        with patch.object(signal.urllib.request, "urlopen", side_effect=[
+            self.response({"errors": [{"type": "INTERNAL", "message": "temporary"}]}),
+            self.response({"data": {"ok": True}}),
+        ]):
+            self.assertEqual(signal.graphql("query { viewer { login } }", {}), {"ok": True})
+        self.sleep.assert_called_once_with(2)
+        self.sleep.reset_mock()
+        with patch.object(signal.urllib.request, "urlopen", return_value=self.response({
+            "errors": [{"message": "Field does not exist"}],
+        })) as urlopen:
+            with self.assertRaisesRegex(SystemExit, "Field does not exist"):
+                signal.graphql("query { missingField }", {})
+        self.assertEqual(urlopen.call_count, 1)
+        self.sleep.assert_not_called()
+
+    def test_long_rate_limit_wait_fails_without_retrying_early(self) -> None:
+        with patch.object(signal.urllib.request, "urlopen", side_effect=self.http_error(429, {"Retry-After": "3600"})) as urlopen:
+            with self.assertRaisesRegex(SystemExit, "exceeding the 300s retry budget"):
+                signal.rest_get("/search/commits")
+        self.assertEqual(urlopen.call_count, 1)
+        self.sleep.assert_not_called()
 
 
 class CalendarTests(unittest.TestCase):
@@ -95,6 +262,13 @@ class ProjectTests(unittest.TestCase):
             },
             {
                 "repository": {
+                    "nameWithOwner": "keycompute/keycompute",
+                    "owner": {"login": "KEYCOMPUTE"},
+                },
+                "commits": {"totalCount": 100},
+            },
+            {
+                "repository": {
                     "nameWithOwner": "OneBlockPlus/hidden",
                     "owner": {"login": "OneBlockPlus"},
                 },
@@ -132,6 +306,8 @@ class ProjectTests(unittest.TestCase):
             {"repository": "ETHPANDA-ORG/events", "commits": 96, "prs": 9},
             {"repository": "MOVE-CN/letsmove", "commits": 95, "prs": 9},
             {"repository": "OPENBUILDXYZ/bootcamp", "commits": 94, "prs": 9},
+            {"repository": "KEYCOMPUTE/keycompute", "commits": 93, "prs": 9},
+            {"repository": "AIQUBITS/AINS", "commits": 92, "prs": 9},
             {
                 "repository": "intensivecolearning/fellowship",
                 "commits": 97,
@@ -145,11 +321,16 @@ class ProjectTests(unittest.TestCase):
         )
 
     def test_offline_projects_filter_excluded_owners(self) -> None:
-        payload = '[{"repository":"external/alpha","commits":2},{"repository":"OneBlockPlus/old","commits":99}]'
-        self.assertEqual(
-            signal.load_offline_projects(payload),
-            [{"repository": "external/alpha", "commits": 2, "prs": 1}],
-        )
+        for owner in ("OneBlockPlus", "KEYCOMPUTE", "AIQUBITS"):
+            with self.subTest(owner=owner):
+                payload = json.dumps([
+                    {"repository": "external/alpha", "commits": 2},
+                    {"repository": f"{owner}/hidden", "commits": 99},
+                ])
+                self.assertEqual(
+                    signal.load_offline_projects(payload),
+                    [{"repository": "external/alpha", "commits": 2, "prs": 1}],
+                )
 
     def test_collision_paths_survive_varied_legal_repository_names(self) -> None:
         for trial in range(40):
@@ -206,6 +387,149 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(name.get("lengthAdjust"), "spacingAndGlyphs")
         self.assertEqual(count.get("text-anchor"), "end")
         self.assertLess(float(count.get("x", "inf")), float(shell.get("width", "0")))
+
+
+class CoauthorTests(unittest.TestCase):
+    @staticmethod
+    def repository(name: str = "external/project") -> dict:
+        return {"nameWithOwner": name, "owner": {"login": name.split("/")[0]}}
+
+    @staticmethod
+    def connection(nodes: list, has_next: bool = False, cursor: str | None = None) -> dict:
+        return {
+            "nodes": nodes,
+            "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        }
+
+    def test_search_paginates_deduplicates_and_excludes_hidden_owners(self) -> None:
+        def item(repository: str, sha: str) -> dict:
+            return {"repository": {"full_name": repository}, "sha": sha}
+
+        responses = [
+            {"total_count": 101, "incomplete_results": False, "items": [
+                item("external/project", "first"),
+                item("AIQUBITS/internal", "hidden"),
+                item("MOVE-CN/course", "hidden"),
+                item("KEYCOMPUTE/keycompute", "hidden"),
+            ]},
+            {"total_count": 101, "incomplete_results": False, "items": [
+                item("external/project", "first"),
+                item("external/project", "second"),
+            ]},
+        ]
+        with patch.object(signal, "rest_get", side_effect=responses) as rest:
+            commits = signal.search_coauthored_commits()
+
+        self.assertEqual(commits, [("external/project", "first"), ("external/project", "second")])
+        self.assertEqual([call.args[1]["page"] for call in rest.call_args_list], [1, 2])
+        self.assertEqual(rest.call_args.args[1]["q"], '"Co-authored-by: aiqubits"')
+
+    def test_search_rejects_results_above_github_limit(self) -> None:
+        with patch.object(signal, "rest_get", return_value={
+            "total_count": 1001, "incomplete_results": False, "items": [],
+        }) as rest:
+            with self.assertRaisesRegex(SystemExit, "1000-result limit"):
+                signal.search_coauthored_commits()
+        rest.assert_called_once()
+
+    def test_verification_requires_account_and_merged_pr_in_same_repository(self) -> None:
+        merged = {"id": "merged-pr", "merged": True, "repository": self.repository()}
+        open_pr = {"id": "open-pr", "merged": False, "repository": self.repository()}
+        upstream = {"id": "upstream-pr", "merged": True, "repository": self.repository("upstream/project")}
+        for login, prs, expected in [
+            ("AIQUBITS", [merged, open_pr, upstream], ["merged-pr"]),
+            ("another-user", [merged], []),
+            (None, [merged], []),
+            ("aiqubits", [open_pr, upstream], []),
+        ]:
+            with self.subTest(login=login, prs=prs):
+                response = {"repository": {
+                    **self.repository(),
+                    "object": {
+                        "authors": self.connection([{"user": {"login": login}}] if login else [{"user": None}]),
+                        "associatedPullRequests": self.connection(prs),
+                    },
+                }}
+                with patch.object(signal, "search_coauthored_commits", return_value=[("external/project", "sha")]):
+                    with patch.object(signal, "graphql", return_value=response):
+                        commits = signal.fetch_coauthored_commits()
+                self.assertEqual([pr for commit in commits for pr in commit["pull_requests"]], expected)
+
+    def test_verification_paginates_authors_and_associated_prs(self) -> None:
+        responses = []
+        for login, pr_id, has_next, cursor in [
+            ("maintainer", "first-pr", True, "next"),
+            ("aiqubits", "second-pr", False, None),
+        ]:
+            responses.append({"repository": {
+                **self.repository(),
+                "object": {
+                    "authors": self.connection([{"user": {"login": login}}], has_next, cursor),
+                    "associatedPullRequests": self.connection([
+                        {"id": pr_id, "merged": True, "repository": self.repository()},
+                    ], has_next, cursor),
+                },
+            }})
+        with patch.object(signal, "search_coauthored_commits", return_value=[("external/project", "sha")]):
+            with patch.object(signal, "graphql", side_effect=responses) as graphql:
+                commits = signal.fetch_coauthored_commits()
+        self.assertEqual(commits[0]["pull_requests"], ["first-pr", "second-pr"])
+        self.assertEqual(graphql.call_args.args[1]["authorsAfter"], "next")
+        self.assertEqual(graphql.call_args.args[1]["prsAfter"], "next")
+
+    def test_counts_normal_and_coauthored_commits_without_double_counting(self) -> None:
+        repository = self.repository()
+        authored = [{
+            "id": "authored-pr", "repository": repository,
+            "commits": {"totalCount": 3}, "mergeCommit": {"oid": "squash"},
+        }]
+        coauthored = [
+            {"repository": repository, "oid": "original", "pull_requests": ["authored-pr"]},
+            {"repository": repository, "oid": "squash", "pull_requests": ["authored-pr"]},
+            {"repository": repository, "oid": "extra", "pull_requests": ["other-pr"]},
+            {"repository": repository, "oid": "extra", "pull_requests": ["other-pr"]},
+            {"repository": repository, "oid": "extra-2", "pull_requests": ["other-pr"]},
+            {"repository": self.repository("OneBlockPlus/hidden"), "oid": "hidden", "pull_requests": ["hidden-pr"]},
+            {"repository": self.repository("aiqubits/internal"), "oid": "internal", "pull_requests": ["internal-pr"]},
+            {"repository": self.repository("keycompute/keycompute"), "oid": "own-org", "pull_requests": ["own-org-pr"]},
+            {"repository": repository, "oid": "unmerged", "pull_requests": []},
+        ]
+        self.assertEqual(signal.aggregate_external_projects(authored, coauthored), [
+            {"repository": "external/project", "commits": 5, "prs": 2},
+        ])
+
+    def test_shared_authored_commit_counts_new_prs_without_counting_commit_again(self) -> None:
+        repository = self.repository()
+        authored = [{
+            "id": "authored-pr", "repository": repository,
+            "commits": {"totalCount": 3}, "mergeCommit": {"oid": "squash"},
+        }]
+        for oid in ("original", "squash"):
+            for repeat in (False, True):
+                with self.subTest(oid=oid, repeat=repeat):
+                    coauthored = [{
+                        "repository": repository, "oid": oid,
+                        "pull_requests": ["authored-pr", "other-pr"],
+                    }]
+                    if repeat:
+                        coauthored.append({
+                            "repository": repository, "oid": oid,
+                            "pull_requests": ["other-pr"],
+                        })
+                    self.assertEqual(
+                        signal.aggregate_external_projects(authored, coauthored),
+                        [{"repository": "external/project", "commits": 3, "prs": 2}],
+                    )
+
+    def test_coauthored_only_project_uses_normal_display(self) -> None:
+        projects = signal.aggregate_external_projects([], [{
+            "repository": self.repository("agent-substrate/substrate"),
+            "oid": "46a602d", "pull_requests": ["2573"],
+        }])
+        self.assertEqual(projects, [{"repository": "agent-substrate/substrate", "commits": 1, "prs": 1}])
+        rows = signal.readme_project_rows(projects)
+        self.assertIn("`+1` merged-PR commit", rows)
+        self.assertNotIn("co-author", rows)
 
 
 class ReadmeCacheTests(unittest.TestCase):
