@@ -10,20 +10,20 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 <!-- profile-signal-projects:start -->
 - [cloud-hypervisor/cloud-hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) — `+5` merged-PR commits
 - [boxlite-ai/boxlite](https://github.com/boxlite-ai/boxlite) — `+4` merged-PR commits
-- [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
-- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+1` merged-PR commit
-- [plabayo/rama](https://github.com/plabayo/rama) — `+1` merged-PR commit
-- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
 - [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) — `+2` merged-PR commits
 - [agent-substrate/substrate](https://github.com/agent-substrate/substrate) — `+1` merged-PR commit
+- [plabayo/rama](https://github.com/plabayo/rama) — `+1` merged-PR commit
+- [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
 - [ethereum/go-ethereum](https://github.com/ethereum/go-ethereum) — `+2` merged-PR commits
+- [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
+- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+2` merged-PR commits
 - [DioxusLabs/awesome-dioxus](https://github.com/DioxusLabs/awesome-dioxus) — `+1` merged-PR commit
 <!-- profile-signal-projects:end -->
 
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-7298ed952cc1.svg">
-    <img src="./assets/profile-signal.svg?v=7298ed952cc1" width="1200" alt="Diagram showing external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-da4a0b90d80e.svg">
+    <img src="./assets/profile-signal.svg?v=da4a0b90d80e" width="1200" alt="Diagram showing external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>
