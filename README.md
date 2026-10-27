@@ -16,14 +16,14 @@ I build **AI-native systems**, **agent runtimes**, and **future computing infras
 - [tokio-rs/axum](https://github.com/tokio-rs/axum) — `+5` merged-PR commits
 - [ethereum/go-ethereum](https://github.com/ethereum/go-ethereum) — `+2` merged-PR commits
 - [salvo-rs/salvo](https://github.com/salvo-rs/salvo) — `+2` merged-PR commits
-- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+2` merged-PR commits
+- [asterinas/asterinas](https://github.com/asterinas/asterinas) — `+3` merged-PR commits
 - [DioxusLabs/awesome-dioxus](https://github.com/DioxusLabs/awesome-dioxus) — `+1` merged-PR commit
 <!-- profile-signal-projects:end -->
 
 </details>
 
 <p align="center">
-  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-da4a0b90d80e.svg">
-    <img src="./assets/profile-signal.svg?v=da4a0b90d80e" width="1200" alt="Diagram showing external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
+  <a href="https://cdn.jsdelivr.net/gh/aiqubits/aiqubits@main/assets/profile-signal-3694fc114f2a.svg">
+    <img src="./assets/profile-signal.svg?v=3694fc114f2a" width="1200" alt="Diagram showing external projects ranked by all-time merged-PR commits above a contribution calendar traversed by Ferris.">
   </a>
 </p>
