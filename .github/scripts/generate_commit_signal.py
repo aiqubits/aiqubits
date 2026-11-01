@@ -68,6 +68,14 @@ EXCLUDED_PROJECT_OWNERS = frozenset(
         "aiqubits",
     }
 )
+EXCLUDED_PROJECT_REPOSITORIES = frozenset(
+    {
+        "aiqubits/quantinfer",
+        "aiqubits/ains",
+        "keycompute/keycompute",
+        "aiqubits/rust-agent",
+    }
+)
 GRAPHQL_URL = "https://api.github.com/graphql"
 REST_URL = "https://api.github.com"
 API_MAX_ATTEMPTS = 4
@@ -324,13 +332,16 @@ def fetch_merged_prs() -> list[dict[str, Any]]:
 def is_excluded_repository(repository: str) -> bool:
     """Return whether a repository belongs to an organization we hide."""
     owner, separator, _ = repository.partition("/")
-    return bool(separator) and owner.casefold() in EXCLUDED_PROJECT_OWNERS
+    return bool(separator) and (
+        repository.casefold() in EXCLUDED_PROJECT_REPOSITORIES
+        or owner.casefold() in EXCLUDED_PROJECT_OWNERS
+    )
 
 
 def filter_excluded_projects(
     projects: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Remove repositories owned by organizations omitted from both displays."""
+    """Remove repositories omitted from both displays."""
     return [
         project
         for project in projects

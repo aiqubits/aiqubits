@@ -308,6 +308,8 @@ class ProjectTests(unittest.TestCase):
             {"repository": "OPENBUILDXYZ/bootcamp", "commits": 94, "prs": 9},
             {"repository": "KEYCOMPUTE/keycompute", "commits": 93, "prs": 9},
             {"repository": "AIQUBITS/AINS", "commits": 92, "prs": 9},
+            {"repository": "aiqubits/QuantInfer", "commits": 91, "prs": 9},
+            {"repository": "AIQUBITS/rust-agent", "commits": 90, "prs": 9},
             {
                 "repository": "intensivecolearning/fellowship",
                 "commits": 97,
@@ -331,6 +333,19 @@ class ProjectTests(unittest.TestCase):
                     signal.load_offline_projects(payload),
                     [{"repository": "external/alpha", "commits": 2, "prs": 1}],
                 )
+
+    def test_named_personal_projects_are_filtered_even_with_mixed_case(self) -> None:
+        projects = [
+            {"repository": "AIQUBITS/QuantInfer", "commits": 4},
+            {"repository": "aiqubits/AINS", "commits": 3},
+            {"repository": "KEYCOMPUTE/KeyCompute", "commits": 2},
+            {"repository": "AIQUBITS/rust-agent", "commits": 1},
+            {"repository": "external/alpha", "commits": 0},
+        ]
+        self.assertEqual(
+            signal.filter_excluded_projects(projects),
+            [{"repository": "external/alpha", "commits": 0}],
+        )
 
     def test_collision_paths_survive_varied_legal_repository_names(self) -> None:
         for trial in range(40):
@@ -608,7 +623,12 @@ class CheckedInAssetTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("# Hi, I'm aiqubits 👋", readme)
         self.assertIn("https://github.com/keycompute/keycompute", readme)
+        self.assertIn("https://github.com/aiqubits/quantinfer", readme)
         self.assertIn("https://github.com/aiqubits/rust-agent", readme)
+        self.assertRegex(
+            readme,
+            r"⚡ Building \[QuantInfer\].*\[AINS\].*\[KeyCompute\].*\[rust-agent\]",
+        )
         self.assertNotIn("Open-source contributions", readme)
         summary = (
             "<summary>I am also a contributor to the following open-source "
@@ -649,8 +669,7 @@ class CheckedInAssetTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                repository.split("/", 1)[0].casefold()
-                not in signal.EXCLUDED_PROJECT_OWNERS
+                not signal.is_excluded_repository(repository)
                 for repository, _ in readme_projects
             )
         )

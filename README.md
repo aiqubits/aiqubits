@@ -2,7 +2,7 @@
 
 I build **AI-native systems**, **agent runtimes**, and **future computing infrastructure** in Rust.
 
-⚡ Building [AINS](https://github.com/aiqubits/AINS), [KeyCompute](https://github.com/keycompute/keycompute), and [rust-agent](https://github.com/aiqubits/rust-agent).
+⚡ Building [QuantInfer](https://github.com/aiqubits/quantinfer), [AINS](https://github.com/aiqubits/AINS), [KeyCompute](https://github.com/keycompute/keycompute), and [rust-agent](https://github.com/aiqubits/rust-agent).
 
 <details>
 <summary>I am also a contributor to the following open-source projects.</summary>
